@@ -26,7 +26,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="top">
-        <NavLink to="/" className="brand"><span className="logo">▦</span> Stoa <span className="brand-sub">Make Blueprints Talk</span></NavLink>
+        <NavLink to="/" className="brand"><span className="logo">▦</span> Trilobyte <span className="brand-sub">Make Blueprints Talk</span></NavLink>
         <nav>
           <NavLink to="/" end>Drawings &amp; upload</NavLink>
           <NavLink to="/search">Search</NavLink>
