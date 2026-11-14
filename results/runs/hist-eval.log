@@ -1,0 +1,44 @@
+158 questions, 57 drawings, context files present for 158; buckets (with web): {'lookup': 123, 'visual': 12, 'derived': 23}; record-only: {'lookup': 117, 'visual': 12, 'derived': 29}
+158 questions, 57 drawings, context files present for 158; buckets (with web): {'lookup': 123, 'visual': 12, 'derived': 23}; record-only: {'lookup': 117, 'visual': 12, 'derived': 29}
+noctx {"n": 158, "acc": 0.5759493670886076, "wall": 19.80339241027832, "errors": 0, "by_bucket": {"lookup": 0.5447154471544715, "derived": 0.5217391304347826, "visual": 1.0}, "n_bucket": {"lookup": 123, "derived": 23, "visual": 12}, "by_source": {"habs": 0.7, "finna": 0.6136363636363636, "europeana": 0.5454545454545454, "wikimedia": 0.43902439024390244}, "by_origin": {"record": 0.5196078431372549, "record+reasoning": 0.575, "image": 0.9375}, "by_split": {"dev": 0.5466666666666666, "test": 0.6024096385542169}, "by_qtype": {"author": 0.08333333333333333, "count": 1.0, "drawing_type": 1.0, "floor": 0.3
+ctx {"n": 158, "acc": 0.9367088607594937, "wall": 19.511870622634888, "errors": 0, "by_bucket": {"lookup": 0.959349593495935, "derived": 0.8260869565217391, "visual": 0.9166666666666666}, "n_bucket": {"lookup": 123, "derived": 23, "visual": 12}, "by_source": {"habs": 0.95, "finna": 0.9090909090909091, "europeana": 0.9696969696969697, "wikimedia": 0.926829268292683}, "by_origin": {"record": 0.9509803921568627, "record+reasoning": 0.9, "image": 0.9375}, "by_split": {"dev": 0.9733333333333334, "test": 0.9036144578313253}, "by_qtype": {"author": 1.0, "count": 1.0, "drawing_type": 1.0, "floor": 1.0, "f
+ctx-noweb {"n": 158, "acc": 0.930379746835443, "wall": 18.058263063430786, "errors": 0, "by_bucket": {"lookup": 0.943089430894309, "derived": 0.8260869565217391, "visual": 1.0}, "n_bucket": {"lookup": 123, "derived": 23, "visual": 12}, "by_source": {"habs": 0.975, "finna": 0.8636363636363636, "europeana": 1.0, "wikimedia": 0.9024390243902439}, "by_origin": {"record": 0.9705882352941176, "record+reasoning": 0.8, "image": 1.0}, "by_split": {"dev": 0.92, "test": 0.9397590361445783}, "by_qtype": {"author": 1.0, "count": 1.0, "drawing_type": 1.0, "floor": 1.0, "function": 0.65, "language": 1.0, "name": 1.0, 
+# Historic context run hist-base-zs
+
+- date: 2026-11-14T15:44
+- model: Qwen/Qwen3.5-4B style: zs split: all endpoint: vLLM OpenAI-compatible
+- questions: 158; buckets {'lookup': 123, 'visual': 12, 'derived': 23}
+
+| mode | n | acc | lookup | derived | visual | dev | test | record | record+reasoning | image | in tok/q | €/1k q |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| noctx | 158 | 0.576 | 0.545 | 0.522 | 1.000 | 0.547 | 0.602 | 0.520 | 0.575 | 0.938 | 1786 | 0.061 |
+| ctx | 158 | 0.937 | 0.959 | 0.826 | 0.917 | 0.973 | 0.904 | 0.951 | 0.900 | 0.938 | 2189 | 0.060 |
+| ctx-noweb | 158 | 0.930 | 0.943 | 0.826 | 1.000 | 0.920 | 0.940 | 0.971 | 0.800 | 1.000 | 2046 | 0.056 |
+
+| mode | author | count | drawing_type | floor | function | language | name | other | place | scale | year |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| noctx | 0.083 | 1.000 | 1.000 | 0.333 | 0.500 | 1.000 | 0.421 | 0.786 | 0.553 | 1.000 | 0.667 |
+| ctx | 1.000 | 1.000 | 1.000 | 1.000 | 0.700 | 1.000 | 0.947 | 0.929 | 0.957 | 1.000 | 1.000 |
+| ctx-noweb | 1.000 | 1.000 | 1.000 | 1.000 | 0.650 | 1.000 | 1.000 | 0.857 | 0.979 | 1.000 | 0.963 |
+
+Paired: context fixed 59 questions and broke 2 (of 158).
+158 questions, 57 drawings, context files present for 158; buckets (with web): {'lookup': 123, 'visual': 12, 'derived': 23}; record-only: {'lookup': 117, 'visual': 12, 'derived': 29}
+noctx {"n": 158, "acc": 0.5886075949367089, "wall": 18.72800374031067, "errors": 0, "by_bucket": {"lookup": 0.5853658536585366, "derived": 0.43478260869565216, "visual": 0.9166666666666666}, "n_bucket": {"lookup": 123, "derived": 23, "visual": 12}, "by_source": {"habs": 0.775, "finna": 0.5909090909090909, "europeana": 0.42424242424242425, "wikimedia": 0.5365853658536586}, "by_origin": {"record": 0.5392156862745098, "record+reasoning": 0.575, "image": 0.9375}, "by_split": {"dev": 0.5466666666666666, "test": 0.6265060240963856}, "by_qtype": {"author": 0.08333333333333333, "count": 1.0, "drawing_type":
+ctx {"n": 158, "acc": 0.879746835443038, "wall": 17.34611463546753, "errors": 0, "by_bucket": {"lookup": 0.9349593495934959, "derived": 0.5652173913043478, "visual": 0.9166666666666666}, "n_bucket": {"lookup": 123, "derived": 23, "visual": 12}, "by_source": {"habs": 0.925, "finna": 0.8863636363636364, "europeana": 0.7575757575757576, "wikimedia": 0.926829268292683}, "by_origin": {"record": 0.9215686274509803, "record+reasoning": 0.75, "image": 0.9375}, "by_split": {"dev": 0.8933333333333333, "test": 0.8674698795180723}, "by_qtype": {"author": 0.9166666666666666, "count": 1.0, "drawing_type": 1.0, 
+# Historic context run hist-ft
+
+- date: 2026-11-14T15:45
+- model: run1-step1050 style: ft split: all endpoint: vLLM OpenAI-compatible
+- questions: 158; buckets {'lookup': 123, 'visual': 12, 'derived': 23}
+
+| mode | n | acc | lookup | derived | visual | dev | test | record | record+reasoning | image | in tok/q | €/1k q |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| noctx | 158 | 0.589 | 0.585 | 0.435 | 0.917 | 0.547 | 0.627 | 0.539 | 0.575 | 0.938 | 1720 | 0.058 |
+| ctx | 158 | 0.880 | 0.935 | 0.565 | 0.917 | 0.893 | 0.867 | 0.922 | 0.750 | 0.938 | 2123 | 0.053 |
+
+| mode | author | count | drawing_type | floor | function | language | name | other | place | scale | year |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| noctx | 0.083 | 1.000 | 0.900 | 0.333 | 0.800 | 0.500 | 0.474 | 0.786 | 0.574 | 1.000 | 0.519 |
+| ctx | 0.917 | 1.000 | 1.000 | 0.667 | 0.950 | 0.500 | 0.947 | 0.857 | 0.936 | 0.000 | 0.704 |
+
+Paired: context fixed 49 questions and broke 3 (of 158).

@@ -1,0 +1,126 @@
+{
+ "thresholds": {
+  "window": 0.66,
+  "door": 0.82,
+  "toilet": 0.72,
+  "sink": 0.64,
+  "shower": 0.68,
+  "bathtub": 0.74,
+  "sauna_stove": 0.8,
+  "room_bedroom": 0.72,
+  "room_kitchen": 0.6,
+  "room_bath": 0.68,
+  "room_wc": 0.8,
+  "room_balcony": 0.46,
+  "room_sauna": 0.4
+ },
+ "band": 1.0,
+ "band_scale": {
+  "window": 0.45,
+  "door": 0.45,
+  "toilet": 0.45,
+  "sink": 0.45,
+  "shower": 0.45,
+  "bathtub": 0.45,
+  "sauna_stove": 0.45,
+  "room_bedroom": 0.45,
+  "room_kitchen": 0.45,
+  "room_bath": 0.45,
+  "room_wc": 0.45,
+  "room_balcony": 0.45,
+  "room_sauna": 0.05
+ },
+ "report": {
+  "window": {
+   "threshold": 0.66,
+   "exact_count_acc": 0.446,
+   "band": 0.45,
+   "clean_share": 0,
+   "clean_precision": 0
+  },
+  "door": {
+   "threshold": 0.82,
+   "exact_count_acc": 0.361,
+   "band": 0.45,
+   "clean_share": 0,
+   "clean_precision": 0
+  },
+  "toilet": {
+   "threshold": 0.72,
+   "exact_count_acc": 0.698,
+   "band": 0.45,
+   "clean_share": 0,
+   "clean_precision": 0
+  },
+  "sink": {
+   "threshold": 0.64,
+   "exact_count_acc": 0.752,
+   "band": 0.45,
+   "clean_share": 0,
+   "clean_precision": 0
+  },
+  "shower": {
+   "threshold": 0.68,
+   "exact_count_acc": 0.629,
+   "band": 0.45,
+   "clean_share": 0,
+   "clean_precision": 0
+  },
+  "bathtub": {
+   "threshold": 0.74,
+   "exact_count_acc": 0.946,
+   "band": 0.45,
+   "clean_share": 0,
+   "clean_precision": 0
+  },
+  "sauna_stove": {
+   "threshold": 0.8,
+   "exact_count_acc": 0.911,
+   "band": 0.45,
+   "clean_share": 0,
+   "clean_precision": 0
+  },
+  "room_bedroom": {
+   "threshold": 0.72,
+   "exact_count_acc": 0.837,
+   "band": 0.45,
+   "clean_share": 0,
+   "clean_precision": 0
+  },
+  "room_kitchen": {
+   "threshold": 0.6,
+   "exact_count_acc": 0.802,
+   "band": 0.45,
+   "clean_share": 0,
+   "clean_precision": 0
+  },
+  "room_bath": {
+   "threshold": 0.68,
+   "exact_count_acc": 0.802,
+   "band": 0.45,
+   "clean_share": 0,
+   "clean_precision": 0
+  },
+  "room_wc": {
+   "threshold": 0.8,
+   "exact_count_acc": 0.901,
+   "band": 0.45,
+   "clean_share": 0,
+   "clean_precision": 0
+  },
+  "room_balcony": {
+   "threshold": 0.46,
+   "exact_count_acc": 0.916,
+   "band": 0.45,
+   "clean_share": 0,
+   "clean_precision": 0
+  },
+  "room_sauna": {
+   "threshold": 0.4,
+   "exact_count_acc": 1.0,
+   "band": 0.05,
+   "clean_share": 0.99,
+   "clean_precision": 1.0
+  }
+ }
+}

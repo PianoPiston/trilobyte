@@ -1,0 +1,186 @@
+{
+ "det_rules": {
+  "doors": [],
+  "saunas": [
+   "agree",
+   "vlm>=0.95"
+  ],
+  "showers_baths": [],
+  "sink": [],
+  "toilet": [
+   "agree_clean",
+   "vlm>=0.99"
+  ],
+  "windows": []
+ },
+ "vlm_threshold": {
+  "cubicasa5k|count_floors": 0.62,
+  "cubicasa5k|count_room_type:balcony": 1.01,
+  "cubicasa5k|count_room_type:bath": 0.916,
+  "cubicasa5k|count_room_type:bedroom": 1.01,
+  "cubicasa5k|count_room_type:kitchen": 0.945,
+  "cubicasa5k|count_room_type:wc": 0.915,
+  "opening_design|count_rooms_labelled": 1.01,
+  "opening_design|doors": 1.01,
+  "opening_design|unknown": 1.01,
+  "opening_design|windows": 1.01
+ },
+ "report": {
+  "cubicasa5k|doors": {
+   "n": 348,
+   "n_eval": 0,
+   "coverage": 0,
+   "precision": 1.0,
+   "wilson_lb": 1.0,
+   "rules": [],
+   "suggest": {
+    "detector_acc": 0.351,
+    "vlm_acc": 0.382
+   }
+  },
+  "cubicasa5k|saunas": {
+   "n": 337,
+   "n_eval": 337,
+   "coverage": 0.926,
+   "precision": 0.9968,
+   "wilson_lb": 0.9821,
+   "rules": [
+    "agree",
+    "vlm>=0.95"
+   ],
+   "suggest": {
+    "detector_acc": 0.884,
+    "vlm_acc": 0.95
+   }
+  },
+  "cubicasa5k|showers_baths": {
+   "n": 436,
+   "n_eval": 0,
+   "coverage": 0,
+   "precision": 1.0,
+   "wilson_lb": 1.0,
+   "rules": [],
+   "suggest": {
+    "detector_acc": 0.555,
+    "vlm_acc": 0.833
+   }
+  },
+  "cubicasa5k|sink": {
+   "n": 474,
+   "n_eval": 0,
+   "coverage": 0,
+   "precision": 1.0,
+   "wilson_lb": 1.0,
+   "rules": [],
+   "suggest": {
+    "detector_acc": 0.747,
+    "vlm_acc": 0.715
+   }
+  },
+  "cubicasa5k|toilet": {
+   "n": 478,
+   "n_eval": 478,
+   "coverage": 0.538,
+   "precision": 0.9961,
+   "wilson_lb": 0.9783,
+   "rules": [
+    "agree_clean",
+    "vlm>=0.99"
+   ],
+   "suggest": {
+    "detector_acc": 0.841,
+    "vlm_acc": 0.872
+   }
+  },
+  "cubicasa5k|windows": {
+   "n": 478,
+   "n_eval": 0,
+   "coverage": 0,
+   "precision": 1.0,
+   "wilson_lb": 1.0,
+   "rules": [],
+   "suggest": {
+    "detector_acc": 0.41,
+    "vlm_acc": 0.259
+   }
+  },
+  "cubicasa5k|count_floors": {
+   "n": 478,
+   "coverage": 0.998,
+   "precision": 0.9958,
+   "wilson_lb": 0.9848,
+   "threshold": 0.62
+  },
+  "cubicasa5k|count_room_type:balcony": {
+   "n": 142,
+   "coverage": 0.0,
+   "precision": 1.0,
+   "wilson_lb": 1.0,
+   "threshold": 1.01
+  },
+  "cubicasa5k|count_room_type:bath": {
+   "n": 251,
+   "coverage": 0.817,
+   "precision": 0.9902,
+   "wilson_lb": 0.9651,
+   "threshold": 0.916
+  },
+  "cubicasa5k|count_room_type:bedroom": {
+   "n": 300,
+   "coverage": 0.0,
+   "precision": 1.0,
+   "wilson_lb": 1.0,
+   "threshold": 1.01
+  },
+  "cubicasa5k|count_room_type:kitchen": {
+   "n": 333,
+   "coverage": 0.913,
+   "precision": 0.9901,
+   "wilson_lb": 0.9714,
+   "threshold": 0.945
+  },
+  "cubicasa5k|count_room_type:wc": {
+   "n": 249,
+   "coverage": 0.867,
+   "precision": 0.9907,
+   "wilson_lb": 0.9669,
+   "threshold": 0.915
+  },
+  "opening_design|count_rooms_labelled": {
+   "n": 2,
+   "coverage": 0.0,
+   "precision": 1.0,
+   "wilson_lb": 1.0,
+   "threshold": 1.01
+  },
+  "opening_design|doors": {
+   "n": 9,
+   "coverage": 0.0,
+   "precision": 1.0,
+   "wilson_lb": 1.0,
+   "threshold": 1.01
+  },
+  "opening_design|unknown": {
+   "n": 1,
+   "coverage": 0.0,
+   "precision": 1.0,
+   "wilson_lb": 1.0,
+   "threshold": 1.01
+  },
+  "opening_design|windows": {
+   "n": 8,
+   "coverage": 0.0,
+   "precision": 1.0,
+   "wilson_lb": 1.0,
+   "threshold": 1.01
+  }
+ },
+ "suggest": {
+  "doors": "vlm",
+  "saunas": "vlm",
+  "showers_baths": "vlm",
+  "sink": "detector",
+  "toilet": "vlm",
+  "windows": "detector"
+ }
+}

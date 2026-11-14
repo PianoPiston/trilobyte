@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/stoa-junction/schema/drawing.schema.json",
+  "title": "Stoa standardized drawing",
+  "description": "One structured file per drawing (or per IFC model). Every item carries provenance and confidence. Files with producer.kind = 'model' come from detectors/VLMs and must NEVER be used as ground truth (ground_truth_eligible = false).",
+  "type": "object",
+  "required": ["schema_version", "drawing_id", "source", "producer", "ground_truth_eligible", "frame", "rooms", "units", "doors", "windows", "symbols", "elements"],
+  "properties": {
+    "schema_version": {"const": "stoa-drawing/1.0"},
+    "drawing_id": {"type": "string", "description": "<dataset source>/<file stem>, e.g. swiss_dwellings/site871_bldg1835_floor8194"},
+    "source": {
+      "type": "object",
+      "required": ["dataset_source", "files"],
+      "properties": {
+        "dataset_source": {"type": "string"},
+        "files": {"type": "object", "description": "same drawing in several formats: {png, pdf, dxf, ifc, svg} -> dataset-relative path", "additionalProperties": {"type": "string"}},
+        "page": {"type": "integer", "minimum": 0},
+        "licence": {"type": ["string", "null"]},
+        "credit": {"type": ["string", "null"]}
+      }
+    },
+    "producer": {
+      "type": "object",
+      "required": ["kind", "converter"],
+      "properties": {
+        "kind": {"enum": ["exact", "model"], "description": "exact = parsed from vector/BIM source (DXF, IFC); model = predicted from raster by detector/VLM"},
+        "converter": {"type": "string", "description": "name@version of the converter"},
+        "models": {"type": "array", "items": {"type": "string"}},
+        "created": {"type": "string"}
+      }
+    },
+    "ground_truth_eligible": {"type": "boolean"},
+    "frame": {
+      "type": "object",
+      "description": "Coordinate frames. world = metres (DXF/IFC) or null for raster-only drawings; image = pixels of source.files.png (y down). norm = 0-1 page coordinates (y down).",
+      "properties": {
+        "world_units": {"enum": ["m", "px"]},
+        "image_size_px": {"type": ["array", "null"], "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+        "world_bounds": {"type": ["array", "null"], "items": {"type": "number"}, "minItems": 4, "maxItems": 4, "description": "x0,y0,x1,y1 of the drawing in world units, used for world -> norm"},
+        "scale": {
+          "type": ["object", "null"],
+          "properties": {
+            "m_per_px": {"type": ["number", "null"]},
+            "method": {"enum": ["dxf_native", "ifc_units", "printed_dimension", "model_estimate", "unknown"]},
+            "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+          }
+        }
+      }
+    },
+    "levels": {
+      "type": "array", "description": "floors / IFC storeys",
+      "items": {"type": "object", "required": ["id", "name"], "properties": {
+        "id": {"type": "string"}, "name": {"type": "string"}, "elevation_m": {"type": ["number", "null"]}, "ifc_global_id": {"type": ["string", "null"]},
+        "provenance": {"$ref": "#/$defs/provenance"}}}
+    },
+    "units": {"type": "array", "description": "apartments / residential units", "items": {"$ref": "#/$defs/unit"}},
+    "rooms": {"type": "array", "items": {"$ref": "#/$defs/room"}},
+    "doors": {"type": "array", "items": {"$ref": "#/$defs/item"}},
+    "windows": {"type": "array", "items": {"$ref": "#/$defs/item"}},
+    "symbols": {"type": "array", "description": "fixtures and other symbols: toilet, washbasin, sink, bathtub, shower, sauna_stove, stove, ...", "items": {"$ref": "#/$defs/item"}},
+    "elements": {"type": "array", "description": "other building elements (IFC walls, slabs, columns, beams, stairs, light fixtures, sanitary terminals) with base quantities", "items": {"$ref": "#/$defs/item"}},
+    "facts": {"type": "object", "description": "drawing-level facts, e.g. floor_count, each {value, provenance}", "additionalProperties": {"type": "object"}},
+    "quality": {"type": "object", "properties": {"warnings": {"type": "array", "items": {"type": "string"}}}}
+  },
+  "$defs": {
+    "provenance": {
+      "type": "object", "required": ["method", "confidence"],
+      "properties": {
+        "method": {"type": "string", "description": "dxf:<layer/rule> | ifc:<rule> | detector:<model> | vlm:<model> | annotation:cubicasa5k (train only)"},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "geometry": {
+      "type": "object",
+      "properties": {
+        "polygon": {"type": "array", "items": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}, "description": "world coords"},
+        "polygon_norm": {"type": "array", "items": {"type": "array", "items": {"type": "number"}}},
+        "bbox_px": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
+        "bbox_norm": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4}
+      }
+    },
+    "item": {
+      "type": "object", "required": ["id", "kind", "provenance"],
+      "properties": {
+        "id": {"type": "string"}, "kind": {"type": "string"}, "name": {"type": ["string", "null"]},
+        "level_id": {"type": ["string", "null"]}, "unit_id": {"type": ["string", "null"]}, "room_id": {"type": ["string", "null"]},
+        "ifc_global_id": {"type": ["string", "null"]}, "ifc_type": {"type": ["string", "null"]},
+        "quantities": {"type": "object", "description": "SI quantities, e.g. length_m, net_side_area_m2, net_volume_m3", "additionalProperties": {"type": ["number", "null"]}},
+        "geometry": {"$ref": "#/$defs/geometry"},
+        "provenance": {"$ref": "#/$defs/provenance"}
+      }
+    },
+    "room": {
+      "type": "object", "required": ["id", "provenance"],
+      "properties": {
+        "id": {"type": "string"}, "name": {"type": ["string", "null"], "description": "label text as printed"},
+        "number": {"type": ["string", "null"]}, "type": {"type": ["string", "null"], "description": "normalized type: bedroom, kitchen, bath, wc, sauna, balcony, living, corridor, storage, shaft, stair, other"},
+        "is_outdoor": {"type": "boolean"}, "is_shaft": {"type": "boolean"},
+        "area_m2": {"type": ["number", "null"]}, "area_method": {"enum": ["printed", "polygon", "ifc_qto", "ifc_geometry", "model_estimate", null]},
+        "printed_area_m2": {"type": ["number", "null"]}, "polygon_area_m2": {"type": ["number", "null"]},
+        "unit_id": {"type": ["string", "null"]}, "level_id": {"type": ["string", "null"]},
+        "ifc_global_id": {"type": ["string", "null"]}, "geometry": {"$ref": "#/$defs/geometry"},
+        "provenance": {"$ref": "#/$defs/provenance"}
+      }
+    },
+    "unit": {
+      "type": "object", "required": ["id", "provenance"],
+      "properties": {
+        "id": {"type": "string"}, "label": {"type": ["string", "null"]}, "level_id": {"type": ["string", "null"]},
+        "room_ids": {"type": "array", "items": {"type": "string"}}, "geometry": {"$ref": "#/$defs/geometry"},
+        "provenance": {"$ref": "#/$defs/provenance"}
+      }
+    }
+  }
+}

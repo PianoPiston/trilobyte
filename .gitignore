@@ -1,0 +1,22 @@
+# data and large/derived artifacts (licensed datasets, model weights, caches)
+DATA/
+artifacts/
+standardized/
+logs/
+context/
+!context/COVERAGE.md
+app/uploads/
+app/.cache/
+app/web/node_modules/
+app/web/dist/
+results/runs/*.jsonl
+results/samples/*.jsonl
+__pycache__/
+*.pyc
+.env
+*.env
+# internal workspace notes (infrastructure details, team transcripts)
+AGENTS.md
+DOCS/transcript*.md
+DOCS/implementation-prompt.md
+DOCS/discord.md

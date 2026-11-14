@@ -1,0 +1,72 @@
+{
+ "thresholds": {
+  "window": 0.86,
+  "door": 0.88,
+  "toilet": 0.42,
+  "sink": 0.72,
+  "shower": 0.76,
+  "bathtub": 0.52,
+  "sauna_stove": 0.66
+ },
+ "band": 1.0,
+ "band_scale": {
+  "window": 0.45,
+  "door": 0.45,
+  "toilet": 0.45,
+  "sink": 0.3,
+  "shower": 0.45,
+  "bathtub": 0.45,
+  "sauna_stove": 0.45
+ },
+ "report": {
+  "window": {
+   "threshold": 0.86,
+   "exact_count_acc": 0.431,
+   "band": 0.45,
+   "clean_share": 0,
+   "clean_precision": 0
+  },
+  "door": {
+   "threshold": 0.88,
+   "exact_count_acc": 0.356,
+   "band": 0.45,
+   "clean_share": 0,
+   "clean_precision": 0
+  },
+  "toilet": {
+   "threshold": 0.42,
+   "exact_count_acc": 0.703,
+   "band": 0.45,
+   "clean_share": 0,
+   "clean_precision": 0
+  },
+  "sink": {
+   "threshold": 0.72,
+   "exact_count_acc": 0.772,
+   "band": 0.3,
+   "clean_share": 0.035,
+   "clean_precision": 1.0
+  },
+  "shower": {
+   "threshold": 0.76,
+   "exact_count_acc": 0.609,
+   "band": 0.45,
+   "clean_share": 0,
+   "clean_precision": 0
+  },
+  "bathtub": {
+   "threshold": 0.52,
+   "exact_count_acc": 0.936,
+   "band": 0.45,
+   "clean_share": 0,
+   "clean_precision": 0
+  },
+  "sauna_stove": {
+   "threshold": 0.66,
+   "exact_count_acc": 0.916,
+   "band": 0.45,
+   "clean_share": 0,
+   "clean_precision": 0
+  }
+ }
+}
