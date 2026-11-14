@@ -213,3 +213,33 @@ VAL error analysis (`scripts/error_analysis_cubicasa.py`): window errors were mo
 | doors | 0.391 → 0.503 | 0.394 → 0.488 (+35 q) |
 
 The app (standardized/cubicasa5k re-exported, uploads) uses the new policy. Router v2 TEST numbers above were not re-run.
+
+## Words layer + final decision maker (2026-11-15 00:20 EET), cubicasa EN questions
+
+Pipeline: every route produces a candidate (exact DXF/IFC file, detector file, printed text from the words layer, live
+fine-tuned VLM, cached model output); `stoa.decide` drops candidates whose scope or unit does not fit the question,
+ranks the rest deterministically (exact first, then the value backed by more independent sources, then the VAL source
+order per question kind) and sets the confidence from VAL-measured agreement patterns (`results/decide_policy.json`).
+The LLM judge (Qwen3.5-4B base, text-only, ~270 tokens/call) was tried on every kind on VAL and was worse than the
+deterministic ranking on 11 of 12 kinds (it tends to keep the first-listed candidate), so it is enabled only for
+`count_symbol:sink` and for kinds VAL cannot calibrate (areas/totals/scale on scans), always under the hard priors.
+Words: RapidOCR PP-OCRv4 (CPU) on the cubicasa raster, best of 4 orientations; labels found on ~85% of plans.
+Sample: 100 drawings per split (fixed hash order, `scripts/build_words.py`), all EN questions on them.
+`old` = previous app routing (detector file if it answers, else VLM). Auto = confidence >= 0.7 and no flags.
+
+| split | n q | old best guess | new best guess | old auto coverage / precision | new auto coverage / precision |
+|---|---|---|---|---|---|
+| VAL (policy fitted here) | 892 | 0.771 | 0.814 | 0.98 / 0.779 | 0.44 / 0.990 |
+| **TEST (run once)** | 915 | **0.769** | **0.816** | 0.97 / 0.775 | **0.44 / 0.985** |
+
+TEST per kind (best guess old -> new; new auto coverage/precision): bedrooms 0.859 -> 0.906 (needs check: no VAL
+agreement pattern reached 97%), kitchens 0.871 -> 0.943 (0.90/0.984), baths 0.920 -> 0.980 (0.92/1.000),
+saunas 0.917 -> 0.931 (0.86/1.000), balconies 0.897 -> 0.897 (0.92/0.972), WC rooms 0.920 -> 0.900 (0.94/0.957),
+showers+baths 0.600 -> 0.800 (0.49/0.979), sinks 0.724 -> 0.816 (judge), toilets 0.840 -> 0.880, windows 0.490 and
+doors 0.468 unchanged (always needs check now: no source reaches 90% on VAL). Full tables:
+`results/runs/judge_{val100,test100}_final.txt`. Single sources on VAL (room types): VLM 0.90-1.00, printed labels
+0.55-0.91 (kitchens are often unlabelled, saunas printed as "S"), detector 0.81-0.96; any two agreeing ~0.97-1.00.
+Cost: one fine-tuned VLM call per non-exact question (€0.013/1k) + OCR once per drawing on CPU (2-15 s) + judge on ~4% of
+questions (~€0.004/1k per call, 0.25-0.6 s); median server latency 1.2 s per question (words cached).
+Area / total / baseboard questions on scans have no dataset labels, so they are not in this table (checked by hand on
+uploaded test plans: printed totals "3h+k+s 63,5 m²", room areas and scale are read correctly from PDF text and OCR).

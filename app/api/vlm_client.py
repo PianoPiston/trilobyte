@@ -83,6 +83,16 @@ class VLMClient:
                 "tokens_in": r.usage.prompt_tokens if r.usage else None, "tokens_out": r.usage.completion_tokens if r.usage else None,
                 "_img_url": url}
 
+    async def chat_text(self, messages, max_tokens=120):
+        """text-only call to the base model (decision judge) -> (text, usage)"""
+        h = await self.health()
+        if not h.get("online"):
+            raise RuntimeError(h.get("reason", "offline"))
+        model = h.get("base_model") or C.VLM_BASE_MODEL
+        r = await self._chat(model, messages, max_tokens, False)
+        u = {"tokens_in": r.usage.prompt_tokens, "tokens_out": r.usage.completion_tokens} if r.usage else {}
+        return r.choices[0].message.content or "", u
+
     async def ground(self, img_url, img_size, question, answer):
         """evidence boxes from the base model (adapter off) -> [[x0,y0,x1,y1] in px of the image sent]"""
         from stoa.methods.vlm import PROMPT_GROUND, SYSTEM, parse_output

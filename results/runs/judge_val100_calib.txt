@@ -1,0 +1,80 @@
+
+kind                                  n | old best det best jdg best | auto cov/prec old, det, judge
+count_doors                          73 |    0.479    0.479    0.479 | 1.00/0.479  0.00/nan  0.00/nan
+count_floors                        100 |    1.000    1.000    1.000 | 1.00/1.000  1.00/1.000  1.00/1.000
+count_room_type:balcony              30 |    0.867    0.933    0.767 | 0.90/0.926  0.90/0.963  0.73/0.955
+count_room_type:bath                 48 |    0.917    0.896    0.833 | 1.00/0.917  0.90/0.977  0.83/0.975
+count_room_type:bedroom              64 |    0.781    0.844    0.750 | 1.00/0.781  0.00/nan  0.00/nan
+count_room_type:kitchen              70 |    0.929    0.957    0.700 | 0.96/0.940  0.94/0.985  0.70/0.980
+count_room_type:wc                   46 |    0.935    0.978    0.957 | 1.00/0.935  0.89/1.000  0.87/1.000
+count_saunas                         71 |    0.887    0.944    0.859 | 1.00/0.887  0.89/0.984  0.83/0.983
+count_symbol:showers_baths           91 |    0.648    0.835    0.648 | 0.97/0.648  0.56/1.000  0.56/1.000
+count_symbol:sink                    99 |    0.758    0.758    0.778 | 0.91/0.811  0.00/nan  0.00/nan
+count_symbol:toilet                 100 |    0.830    0.880    0.860 | 1.00/0.830  0.00/nan  0.00/nan
+count_windows                       100 |    0.450    0.450    0.410 | 1.00/0.450  0.00/nan  0.00/nan
+ALL                                 892 |    0.771    0.811    0.743 | 0.98/0.779  0.44/0.990  0.40/0.989
+
+per-source accuracy (when the source produced a candidate):
+  count_doors                        detector  n=  73 acc=0.479
+  count_doors                        vlm       n=  73 acc=0.452
+  count_floors                       vlm       n= 100 acc=1.000
+  count_room_type:balcony            detector  n=  30 acc=0.867
+  count_room_type:balcony            text      n=  30 acc=0.767
+  count_room_type:balcony            vlm       n=  30 acc=0.933
+  count_room_type:bath               detector  n=  48 acc=0.917
+  count_room_type:bath               text      n=  47 acc=0.553
+  count_room_type:bath               vlm       n=  48 acc=0.917
+  count_room_type:bedroom            detector  n=  64 acc=0.781
+  count_room_type:bedroom            text      n=  68 acc=0.647
+  count_room_type:bedroom            vlm       n=  64 acc=0.859
+  count_room_type:kitchen            detector  n=  70 acc=0.929
+  count_room_type:kitchen            text      n=  67 acc=0.507
+  count_room_type:kitchen            vlm       n=  70 acc=0.971
+  count_room_type:wc                 detector  n=  46 acc=0.935
+  count_room_type:wc                 text      n=  45 acc=0.889
+  count_room_type:wc                 vlm       n=  46 acc=0.957
+  count_saunas                       detector  n=  71 acc=0.887
+  count_saunas                       text      n=  67 acc=0.597
+  count_saunas                       vlm       n=  71 acc=0.958
+  count_symbol:showers_baths         detector  n=  91 acc=0.648
+  count_symbol:showers_baths         vlm       n=  91 acc=0.835
+  count_symbol:sink                  detector  n=  99 acc=0.758
+  count_symbol:sink                  vlm       n=  99 acc=0.707
+  count_symbol:toilet                detector  n= 100 acc=0.830
+  count_symbol:toilet                vlm       n= 100 acc=0.880
+  count_windows                      detector  n= 100 acc=0.450
+  count_windows                      vlm       n= 100 acc=0.250
+
+agreement patterns:
+  count_doors                        detector+vlm           n=  32 acc=0.781
+  count_room_type:balcony            detector+vlm           n=  26 acc=0.962
+  count_room_type:balcony            text+detector          n=  23 acc=0.913
+  count_room_type:balcony            text+detector+vlm      n=  21 acc=0.952
+  count_room_type:balcony            text+vlm               n=  23 acc=0.957
+  count_room_type:bath               detector+vlm           n=  42 acc=0.976
+  count_room_type:bath               text+detector          n=  29 acc=0.897
+  count_room_type:bath               text+detector+vlm      n=  26 acc=0.962
+  count_room_type:bath               text+vlm               n=  27 acc=0.926
+  count_room_type:bedroom            detector+vlm           n=  53 acc=0.906
+  count_room_type:bedroom            text+detector          n=  35 acc=0.914
+  count_room_type:bedroom            text+detector+vlm      n=  34 acc=0.941
+  count_room_type:bedroom            text+vlm               n=  39 acc=0.897
+  count_room_type:kitchen            detector+vlm           n=  65 acc=0.985
+  count_room_type:kitchen            text+detector          n=  36 acc=0.944
+  count_room_type:kitchen            text+detector+vlm      n=  35 acc=0.971
+  count_room_type:kitchen            text+vlm               n=  35 acc=0.971
+  count_room_type:wc                 detector+vlm           n=  41 acc=1.000
+  count_room_type:wc                 text+detector          n=  37 acc=1.000
+  count_room_type:wc                 text+detector+vlm      n=  36 acc=1.000
+  count_room_type:wc                 text+vlm               n=  40 acc=0.975
+  count_saunas                       detector+vlm           n=  62 acc=0.984
+  count_saunas                       text+detector          n=  39 acc=0.949
+  count_saunas                       text+detector+vlm      n=  36 acc=1.000
+  count_saunas                       text+vlm               n=  40 acc=0.975
+  count_symbol:showers_baths         detector+vlm           n=  51 acc=1.000
+  count_symbol:sink                  detector+vlm           n=  65 acc=0.892
+  count_symbol:toilet                detector+vlm           n=  80 acc=0.963
+  count_windows                      detector+vlm           n=  23 acc=0.652
+
+judge calls 345: mean latency 0.47 s (concurrent), mean tokens 271
+wrote results/decide_policy.json

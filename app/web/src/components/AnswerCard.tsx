@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Answer } from "../api";
+import type { Answer, Candidate } from "../api";
 import { fmtValue } from "../api";
 
 export const METHOD_META: Record<string, { label: string; cls: string; hint: string }> = {
@@ -8,6 +8,7 @@ export const METHOD_META: Record<string, { label: string; cls: string; hint: str
   detector: { label: "Detector", cls: "m-detector", hint: "Symbols found by our detector on the raster plan (model-derived file)." },
   vlm: { label: "AI model", cls: "m-vlm", hint: "Fine-tuned Qwen3.5-4B (LoRA), confidence = answer-token probability." },
   cache: { label: "AI model · cached", cls: "m-cache", hint: "Answer the AI model gave earlier (model endpoint offline right now)." },
+  text: { label: "Printed text", cls: "m-text", hint: "Read from the text printed on the drawing (PDF vector text or OCR), assigned to the matching room." },
   context: { label: "Archive record", cls: "m-context", hint: "Read from the drawing's archive record, with the source link." },
   none: { label: "No answer", cls: "m-none", hint: "No route could answer." },
 };
@@ -23,7 +24,14 @@ export function costText(eur: number) {
   return per1k < 0.01 ? `€${per1k.toFixed(4)} per 1k questions` : `€${per1k.toFixed(3)} per 1k questions`;
 }
 
-export default function AnswerCard({ a, onEvidence }: { a: Answer; onEvidence: () => void }) {
+const DECIDER: Record<string, string> = {
+  exact: "exact file wins (no judge needed)", deterministic: "deterministic ranking", judge: "ranked by the decision model (Qwen3.5-4B, text-only)",
+  "judge-fallback": "decision model failed, deterministic ranking used",
+};
+
+export default function AnswerCard({ a, onEvidence, activeCand, onCandidate }: {
+  a: Answer; onEvidence: () => void; activeCand?: string | null; onCandidate?: (c: Candidate | null) => void;
+}) {
   const [trace, setTrace] = useState(false);
   const v = fmtValue(a.answer, a.unit);
   const conf = a.confidence;
@@ -62,6 +70,32 @@ export default function AnswerCard({ a, onEvidence }: { a: Answer; onEvidence: (
           {placed > 0 && <button className="chip link" onClick={onEvidence}>◎ {placed} evidence item{placed > 1 ? "s" : ""}</button>}
         </div>
       </div>
+
+      {(a.ranked_candidates?.length ?? 0) > 1 || (a.answer === null && (a.ranked_candidates?.length ?? 0) > 0) ? (
+        <div className="cands">
+          <div className="muted small">
+            {a.answer === null ? "Candidates (hints only)" : "Other candidates (less confident)"} · {DECIDER[a.decider || "deterministic"] || a.decider}
+            {a.judge?.latency_s != null && <> · judge {Math.round(a.judge.latency_s * 1000)} ms</>}
+          </div>
+          <ul>
+            {a.ranked_candidates!.filter((c, i) => a.answer === null || i > 0).map((c) => {
+              const fv = fmtValue(c.value, c.unit);
+              const n = c.evidence.filter((e) => e.polygon || e.bbox).length;
+              return (
+                <li key={c.id} className={"cand" + (activeCand === c.id ? " on" : "")} title={c.reason || ""}
+                  onClick={() => onCandidate?.(activeCand === c.id ? null : c)}>
+                  <span className="cv">{fv.value}{fv.unit && <span className="u"> {fv.unit}</span>}</span>
+                  <span className="cs">{c.source_label || c.source}</span>
+                  <span className="cc">{c.confidence == null ? "n/a" : `${Math.round(c.confidence * 100)}%`}</span>
+                  {n > 0 && <span className="muted small">◎ {n}</span>}
+                  {c.agree_with.length > 0 && <span className="muted small" title="independent sources with the same value">= {c.agree_with.join(", ")}</span>}
+                  <div className="cr muted small">{c.reason}</div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
 
       {a.reference && (
         <div className={"reference " + (a.reference.match === true ? "match" : a.reference.match === false ? "miss" : "")}>

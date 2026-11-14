@@ -38,6 +38,11 @@ CONF_AUTO = float(os.environ.get("STOA_CONF_AUTO", "0.7"))  # leaderboard: >=0.7
 # throughput: fine-tuned answer €0.013/1k q, zero-shot grounding call ~€0.038/1k q (results/leaderboard.md, TEST).
 COST_FT_CALL = float(os.environ.get("STOA_COST_FT_CALL", "0.000013"))
 COST_GROUND_CALL = float(os.environ.get("STOA_COST_GROUND_CALL", "0.000038"))
+# judge: text-only call (~450 prompt + ~30 output tokens, no image) on the same GPU. Estimated from the token ratio to the
+# fine-tuned image call (~1,500 tokens -> €0.013/1k): ~€0.004/1k questions. Measured latency is reported per answer.
+COST_JUDGE_CALL = float(os.environ.get("STOA_COST_JUDGE_CALL", "0.000004"))
+USE_JUDGE = os.environ.get("STOA_USE_JUDGE", "1") == "1"
+OCR_ON_ASK = os.environ.get("STOA_OCR_ON_ASK", "1") == "1"  # compute the words layer on first ask if missing
 COST_CPU_CALL = float(os.environ.get("STOA_COST_CPU_CALL", "0.000001"))
 
 os.makedirs(APP_DATA, exist_ok=True)

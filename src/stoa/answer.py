@@ -175,6 +175,14 @@ def query(doc, intent):
         use = rs if len(rs) > len(ss) else ss
         return _res(len(use), "count", use, "saunas")
     if k == "count_room_type":
+        if any(r.get("name") for r in rooms):
+            # exact files (swiss DXF) type only some rooms: classify the printed room NAMES from the file too
+            from .text.measure import LEXICON
+            def typ(r):
+                toks = [LEXICON.get(t.upper()) for t in re.findall(r"[A-Za-zÄÖÅäöåÉéÜü]+", r.get("name") or "")]
+                return r.get("type") or next((t for t in toks if t), None)
+            rs = [r for r in rooms if typ(r) == intent["type"]]
+            return _res(len(rs), "count", rs, f"rooms_by_name:{intent['type']}")
         rs = [r for r in rooms if r.get("type") == intent["type"]]
         return _res(len(rs), "count", rs, f"rooms:{intent['type']}")
     if k == "count_floors":

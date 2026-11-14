@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, forwardRef } from "react";
-import type { Evidence, LayerItem } from "../api";
+import type { Evidence, LayerItem, Word } from "../api";
 
 type View = { x: number; y: number; k: number };
 export type ViewerHandle = { focus: (box: number[] | null) => void; fit: () => void };
@@ -10,6 +10,8 @@ type Props = {
   evidence: Evidence[];
   layer: LayerItem[] | null;
   showLayer: boolean;
+  words?: Word[] | null;
+  showWords?: boolean;
   hoverId: string | null;
   selectedId: string | null;
   onHover: (id: string | null) => void;
@@ -134,6 +136,11 @@ const Viewer = forwardRef<ViewerHandle, Props>(function Viewer(p, ref) {
           {p.showLayer && p.layer?.filter((l) => !evIds.has(l.id)).map((l) => (
             <g key={"l" + l.id} onMouseMove={label(l.label)} onMouseLeave={() => setTip(null)}>
               <Shape e={l} cls={"lay lay-" + l.kind} color={KIND_COLOR[l.kind] || "#888"} />
+            </g>
+          ))}
+          {p.showWords && p.words?.map((w, i) => (
+            <g key={"w" + i} onMouseMove={label(`“${w.text}”${w.conf != null && w.conf < 1 ? `  ·  OCR ${Math.round(w.conf * 100)}%` : ""}`)} onMouseLeave={() => setTip(null)}>
+              <rect className="word" x={w.bbox[0]} y={w.bbox[1]} width={Math.max(1, w.bbox[2] - w.bbox[0])} height={Math.max(1, w.bbox[3] - w.bbox[1])} vectorEffect="non-scaling-stroke" />
             </g>
           ))}
           {placed.map((e, i) => {

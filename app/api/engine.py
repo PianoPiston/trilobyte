@@ -17,7 +17,7 @@ from . import geometry as G
 from .vlm_client import VLM
 
 METHOD_LABEL = {"dxf-exact": "Exact from CAD (DXF)", "ifc-exact": "Exact from IFC model", "detector": "Symbol detector",
-                "vlm": "AI model (fine-tuned VLM)", "cache": "Cached AI answer", "context": "Archive record", "none": "No answer"}
+                "vlm": "AI model (fine-tuned VLM)", "cache": "Cached AI answer", "context": "Archive record", "text": "Printed text on the drawing", "none": "No answer"}
 _lock = threading.Lock()
 
 
@@ -239,23 +239,117 @@ def _check_ref(ref, value):
         return None
 
 
-async def ask(drawing_id, question, lang=None, use_vlm=True, use_cache=True):
+# ------------------------------------------------------------------------------------------------ words layer (text route)
+def words_path(d):
+    return os.path.join(C.STD_DIR, d["source"], d["stem"] + ".words.json")
+
+
+def _pdf_of(d):
+    if d["source"] == "upload":
+        p = os.path.join(os.path.dirname(d["files"]["png"]), "original.pdf")
+        return p if os.path.exists(p) else None
+    rel = d["files"].get("pdf")
+    if rel:
+        root = CAT._find_root(rel)
+        return os.path.join(root, rel) if root else None
+    return None
+
+
+def words_for(d, compute=True):
+    """words file of a drawing (PDF vector text or OCR), computed once and stored next to its standardized file"""
+    if d["track"] == "historic":
+        return None
+    img = CAT.image_file(d)
+    if not img:
+        return None
+    from stoa.text.words import load_or_extract
+    try:
+        return load_or_extract(words_path(d), img, _pdf_of(d), compute=compute)
+    except Exception:
+        return None
+
+
+def text_candidates(d, question, doc=None):
+    """printed-text candidates (deterministic). Reads only the drawing's words + detector room boxes."""
+    from stoa.text.measure import parse, text_intent, answer_from_text
+    intent = text_intent(question)
+    w = words_for(d, compute=C.OCR_ON_ASK)
+    if not w or not w.get("words"):
+        return intent, [], w
+    rooms = [{"id": r["id"], "bbox": r["geometry"]["bbox_px"]} for r in (doc or {}).get("rooms", [])
+             if (r.get("geometry") or {}).get("bbox_px")] if doc and (doc.get("producer") or {}).get("kind") == "model" else None
+    parsed = parse(w["words"], rooms)
+    out = []
+    how = "PDF vector text" if w.get("method") == "pdf" else "OCR"
+    for c in answer_from_text(parsed, intent):
+        out.append({**c, "source": "text", "source_label": f"Printed text ({how})", "method_detail": c.get("rule"),
+                    "method": "text"})
+    return intent, out, w
+
+
+def _exact_by_name(d, doc, question, cands):
+    """exact file rooms classified by their printed NAME (Schlafzimmer, Küche, MH ...):
+    count of a room type, or the area of the single room of that type. Replaces a generic IfcSpace count."""
+    from stoa.text.measure import text_intent, room_type_of_name
+    ti = text_intent(question)
+    rooms = [r for r in doc.get("rooms", []) if r.get("name")]
+    if not rooms:
+        return cands
+    typed = [(r, r.get("type") or room_type_of_name(r.get("name"))) for r in rooms]
+    from stoa.answer import _ev
+    if ti["kind"] == "count_rooms":
+        rs = [r for r, t in typed if t == ti["type"]]
+        generic = [c for c in cands if c["source"] == "exact" and "count_IfcSpace" in str(c.get("method_detail"))]
+        if generic or not any(c["source"] == "exact" for c in cands):
+            cands = [c for c in cands if c not in generic]
+            cands.append({"value": len(rs), "unit": "count", "confidence": 0.97, "source": "exact", "method": _method_of(
+                "ifc:" if d["source"] == "ifc_models" else "dxf:"), "method_detail": f"std:exact:rooms_by_name:{ti['type']}",
+                "evidence": map_evidence(d, _ev(rs), doc), "scope": ti["scope"], "sources": [],
+                "reason": f"{len(rs)} room(s) named as {ti['type']} in the exact file ({', '.join(sorted({r['name'] for r in rs})) or 'none'})"})
+    elif ti["kind"] == "area" and str(ti.get("scope", "")).startswith("room:") and not any(c["source"] == "exact" for c in cands):
+        typ = ti.get("type")
+        rs = [r for r, t in typed if typ and t == typ and r.get("area_m2") is not None]
+        if len(rs) == 1:
+            cands.append({"value": round(rs[0]["area_m2"], 2), "unit": "m2", "confidence": 0.97, "source": "exact",
+                          "method": _method_of("ifc:" if d["source"] == "ifc_models" else "dxf:"),
+                          "method_detail": f"std:exact:room_area_by_name:{typ}", "evidence": map_evidence(d, _ev(rs), doc),
+                          "scope": ti["scope"], "sources": [], "reason": f"area of the room named {rs[0]['name']} in the exact file"})
+        elif len(rs) > 1:
+            cands.append({"value": [round(r["area_m2"], 2) for r in rs], "unit": "m2", "confidence": 0.6, "source": "exact",
+                          "method": _method_of("ifc:" if d["source"] == "ifc_models" else "dxf:"), "flags": ["ambiguous_room_label"],
+                          "method_detail": f"std:exact:room_area_by_name:{typ}", "evidence": map_evidence(d, _ev(rs), doc),
+                          "scope": ti["scope"], "sources": [], "reason": f"{len(rs)} rooms of type {typ} in the exact file: one area each"})
+    return cands
+
+
+async def _judge_chat(messages, max_tokens):
+    return await VLM.chat_text(messages, max_tokens)
+
+
+SOURCE_METHOD = {"text": "text", "detector": "detector", "vlm": "vlm", "cache": "cache", "context": "context"}
+
+
+async def ask(drawing_id, question, lang=None, use_vlm=True, use_cache=True, use_judge=None):
     t0 = time.time()
     d = CAT.describe(drawing_id)
     if d is None:
         return {"error": f"unknown drawing {drawing_id}"}
     question = (question or "").strip()[:500]
-    trace, res, cost = [], None, 0.0
+    use_judge = C.USE_JUDGE if use_judge is None else use_judge
+    trace, cands, cost, doc = [], [], 0.0, None
+    # NOTE (no leakage): nothing in this candidate-generation block may read reference_for()/example answers,
+    # questions.jsonl labels or eval results. The dataset label is looked up only after the decision (bottom).
 
     # 1. historic context
     if d["track"] == "historic":
         r = await asyncio.to_thread(context_answer, d, question)
         trace.append({"route": "historic context", "result": "answered" if r else "not a metadata question"})
         if r:
-            res, cost = r, C.COST_CPU_CALL
+            cands.append({**r, "source": "context", "scope": "any", "reason": "field of the archive record (cited)"})
+            cost += C.COST_CPU_CALL
 
     # 2./3. standardized file + exact routes
-    if res is None and d["source"] in ("swiss_dwellings", "ifc_models"):
+    if d["source"] in ("swiss_dwellings", "ifc_models"):
         try:
             from stoa.answer import answer_std
             doc = await asyncio.to_thread(std_doc, d)
@@ -263,13 +357,13 @@ async def ask(drawing_id, question, lang=None, use_vlm=True, use_cache=True):
         except Exception as e:
             r, doc = {"value": None, "abstain_reason": repr(e)[:200]}, None
         name = "standardized DXF file" if d["source"] == "swiss_dwellings" else "standardized IFC file"
+        cost += C.COST_CPU_CALL
         if r.get("value") is not None:
             trace.append({"route": name, "result": "answered"})
             ev = await asyncio.to_thread(map_evidence, d, r.get("evidence") or [], doc)
-            res = {"value": r["value"], "unit": r.get("unit"), "confidence": r.get("confidence", 0.99),
-                   "method": _method_of(r.get("method")), "method_detail": r.get("method"), "evidence": ev,
-                   "flags": r.get("flags", []), "sources": []}
-            cost = C.COST_CPU_CALL
+            cands.append({"value": r["value"], "unit": r.get("unit"), "confidence": r.get("confidence", 0.99), "source": "exact",
+                          "method": _method_of(r.get("method")), "method_detail": r.get("method"), "evidence": ev, "scope": "any",
+                          "flags": r.get("flags", []), "sources": [], "reason": f"deterministic query of the {name} ({r.get('method')})"})
         else:
             trace.append({"route": name, "result": r.get("abstain_reason") or "abstained"})
             try:
@@ -283,29 +377,57 @@ async def ask(drawing_id, question, lang=None, use_vlm=True, use_cache=True):
             if r2.get("value") is not None:
                 trace.append({"route": "exact parser route", "result": "answered"})
                 ev = await asyncio.to_thread(map_evidence, d, r2.get("evidence") or [], doc)
-                res = {"value": r2["value"], "unit": r2.get("unit"), "confidence": r2.get("confidence", 0.99),
-                       "method": _method_of(r2.get("method")), "method_detail": r2.get("method"), "evidence": ev, "sources": []}
-                cost = C.COST_CPU_CALL
+                cands.append({"value": r2["value"], "unit": r2.get("unit"), "confidence": r2.get("confidence", 0.99), "source": "exact",
+                              "method": _method_of(r2.get("method")), "method_detail": r2.get("method"), "evidence": ev, "scope": "any",
+                              "sources": [], "reason": f"deterministic parser of the source file ({r2.get('method')})"})
             else:
                 trace.append({"route": "exact parser route", "result": "abstained (question kind not in the CAD/IFC data)"})
 
+    # 3b. room NAMES of an exact file answer room-type counts/areas the template parsers do not cover
+    if doc and "error" not in doc and (doc.get("producer") or {}).get("kind") == "exact" and d["source"] in ("swiss_dwellings", "ifc_models"):
+        try:
+            cands = _exact_by_name(d, doc, question, cands)
+        except Exception as e:
+            trace.append({"route": "exact room names", "result": f"failed: {type(e).__name__}"})
+
     # 4. model-derived standardized file (detector)
-    if res is None and d["source"] not in ("swiss_dwellings", "ifc_models"):
-        doc = std_doc(d)
+    if d["source"] not in ("swiss_dwellings", "ifc_models") and d["track"] != "historic":
+        doc = await asyncio.to_thread(std_doc, d)
         if doc and doc.get("producer", {}).get("kind") == "model":
             from stoa.answer import parse_intent, query
             r = query(doc, parse_intent(question))
             if r is not None:
                 trace.append({"route": "detector file", "result": "answered"})
-                res = {"value": r["value"], "unit": r["unit"], "confidence": r["confidence"], "method": "detector",
-                       "method_detail": f"std:model:{r['rule']}", "evidence": map_evidence(d, r["evidence"], doc), "sources": []}
-                cost = C.COST_CPU_CALL
+                cands.append({"value": r["value"], "unit": r["unit"], "confidence": r["confidence"], "source": "detector",
+                              "method": "detector", "method_detail": f"std:model:{r['rule']}", "scope": "any",
+                              "evidence": map_evidence(d, r["evidence"], doc), "sources": [],
+                              "reason": f"{r['value']} detector box(es) above the calibrated threshold ({r['rule']})"})
+                cost += C.COST_CPU_CALL
             else:
                 trace.append({"route": "detector file", "result": "abstained"})
 
+    # 5. words layer (printed text: PDF vector words or OCR)
+    q_scope, scope_key = None, None
+    if d["track"] != "historic":
+        try:
+            intent, tc, w = await asyncio.to_thread(text_candidates, d, question, doc if doc and "error" not in (doc or {}) else None)
+            q_scope = intent.get("scope")
+            for c in cands:  # route answers of the same question inherit its scope (they answer it as asked)
+                if c.get("scope") == "any" and q_scope and not str(q_scope).startswith(("count:", "other:", "drawing", "unknown", "unsupported")):
+                    c["scope"] = q_scope
+            cands += tc
+            trace.append({"route": "printed text", "result": (f"{len(tc)} candidate(s) from {len(w['words'])} words ({w.get('method')})"
+                                                             if w else "no words layer yet")})
+            cost += C.COST_CPU_CALL
+        except Exception as e:
+            trace.append({"route": "printed text", "result": f"failed: {type(e).__name__}"})
+
+    strong_exact = any(c["source"] == "exact" and (c.get("confidence") or 0) >= 0.95 and not c.get("flags") for c in cands)
+    has_context = any(c["source"] == "context" for c in cands)
     cached = CACHE.get(d["q_path"], question) if use_cache else None
-    # 5. live VLM
-    if res is None and use_vlm and not (C.PREFER_CACHE and cached):
+    vlm_meta = None
+    # 6. live VLM (skipped when an exact file already answers cleanly)
+    if not strong_exact and not has_context and use_vlm and not (C.PREFER_CACHE and cached):
         h = await VLM.health()
         if h.get("online"):
             img = CAT.image_file(d)
@@ -317,41 +439,71 @@ async def ask(drawing_id, question, lang=None, use_vlm=True, use_cache=True):
                     ctx_block = render(ctx, max_chars=1400, web=True) if ctx else ""
                 r = await VLM.answer(img, question, context_block=ctx_block, style="zs" if d["track"] == "historic" else "ft")
                 cost += C.COST_FT_CALL if d["track"] != "historic" else C.COST_GROUND_CALL
-                ev = []
-                if C.VLM_GROUND and r.get("value") is not None:
-                    try:
-                        boxes, gi = await VLM.ground(r["_img_url"], r["img_size"], question, f"{r['value']} {r.get('unit') or ''}".strip())
-                        W, H = CAT.image_size(img)
-                        sx, sy = W / r["img_size"][0], H / r["img_size"][1]
-                        ev = [{"id": f"B{i}", "label": f"model pointer {i + 1}", "kind": "pointer",
-                               "bbox": [b[0] * sx, b[1] * sy, b[2] * sx, b[3] * sy], "approximate": True} for i, b in enumerate(boxes)]
-                        cost += C.COST_GROUND_CALL
-                    except Exception as e:
-                        trace.append({"route": "grounding (base model)", "result": f"failed: {type(e).__name__}"})
                 trace.append({"route": f"VLM {r.get('model')}", "result": "answered" if r.get("value") is not None else "no answer"})
-                res = {"value": r.get("value"), "unit": r.get("unit"), "confidence": r.get("confidence"), "method": "vlm",
-                       "method_detail": f"vlm:{r.get('model')}", "evidence": ev, "sources": [], "model_raw": r.get("raw")}
-                if d["track"] == "historic" and ctx_block:
-                    ctx = CAT.load_context(d["source"], d["stem"]) or {}
-                    res["sources"] = [{"label": "archive record (given to the model as context)", "url": ctx.get("licence", {}).get("source_url")}]
-                if res["value"] is not None:
-                    CACHE.put_live(d["q_path"], question, {**res, "answer": res["value"]})
+                if r.get("value") is not None:
+                    vlm_meta = r
+                    srcs = []
+                    if d["track"] == "historic" and ctx_block:
+                        ctx = CAT.load_context(d["source"], d["stem"]) or {}
+                        srcs = [{"label": "archive record (given to the model as context)", "url": ctx.get("licence", {}).get("source_url")}]
+                    cands.append({"value": r.get("value"), "unit": r.get("unit"), "confidence": r.get("confidence"), "source": "vlm",
+                                  "method": "vlm", "method_detail": f"vlm:{r.get('model')}", "evidence": [], "sources": srcs,
+                                  "scope": q_scope if q_scope and str(q_scope).startswith(("room:", "rooms_sum:", "total")) else "any",
+                                  "model_raw": r.get("raw"), "reason": "fine-tuned model read the image; confidence = answer-token probability"})
+                    CACHE.put_live(d["q_path"], question, {"answer": r.get("value"), "unit": r.get("unit"), "confidence": r.get("confidence"),
+                                                          "method": "vlm", "evidence": []})
             except Exception as e:
                 trace.append({"route": "VLM", "result": f"failed: {type(e).__name__}: {str(e)[:120]}"})
         else:
             trace.append({"route": "VLM", "result": f"offline ({h.get('reason', 'unreachable')})"})
 
-    # 6. cache
-    if res is None and cached:
+    # 7. cache (earlier MODEL output only; records are whitelisted, never a dataset label)
+    if not strong_exact and not has_context and not any(c["source"] == "vlm" for c in cands) and cached:
         trace.append({"route": "answer cache", "result": f"hit ({cached.get('origin', 'eval run')})"})
         ev = cached.get("evidence") or []
-        res = {"value": cached["value"], "unit": cached.get("unit"), "confidence": cached.get("confidence"),
-               "method": "cache", "method_detail": f"cache:{cached.get('method') or 'vlm'}:{cached.get('run', cached.get('origin', ''))}",
-               "cached_method": _method_of(cached.get("method")) if cached.get("method") else "vlm",
-               "evidence": ev if all(("bbox" in e or "polygon" in e or "label" in e) for e in ev) else [], "sources": []}
-    if res is None:
+        cands.append({"value": cached["value"], "unit": cached.get("unit"), "confidence": cached.get("confidence"), "source": "cache",
+                      "method": "cache", "method_detail": f"cache:{cached.get('method') or 'vlm'}:{cached.get('run', cached.get('origin', ''))}",
+                      "cached_method": _method_of(cached.get("method")) if cached.get("method") else "vlm",
+                      "scope": q_scope if q_scope and str(q_scope).startswith(("room:", "rooms_sum:", "total")) else "any",
+                      "evidence": ev if all(("bbox" in e or "polygon" in e or "label" in e) for e in ev) else [], "sources": [],
+                      "reason": "model answer cached from an earlier run (model output, not a label)"})
+
+    # 8. decide
+    from stoa.decide import decide, final_confidence, scope_key_for
+    scope_key = scope_key_for(question, q_scope)
+    from stoa.text.measure import text_intent, expected_unit
+    dec = await decide(question, q_scope, cands, chat=_judge_chat if (use_judge and (await VLM.health()).get("online")) else None,
+                       use_judge=use_judge, scope_key=scope_key, expected_unit=expected_unit(text_intent(question)))
+    ranked = dec["ranked"]
+    if dec.get("judge") and "error" not in dec["judge"]:
+        cost += C.COST_JUDGE_CALL
+    if dec["decider"] in ("judge", "judge-fallback"):
+        trace.append({"route": "decision (LLM judge)", "result": (f"ranked {len(ranked)} candidates" if dec["decider"] == "judge"
+                                                                 else f"fallback to deterministic ranking ({(dec.get('judge') or {}).get('error')})")})
+    elif len(ranked) > 1:
+        trace.append({"route": "decision", "result": f"{dec['decider']} ranking of {len(ranked)} candidates"})
+    for c in dec["dropped"]:
+        trace.append({"route": "decision", "result": c["reason"][:160]})
+
+    top = ranked[0] if ranked else None
+    # grounding boxes only for a VLM answer that won (saves a call otherwise)
+    if top is not None and top["source"] == "vlm" and C.VLM_GROUND and vlm_meta and d["track"] != "historic":
+        try:
+            boxes, gi = await VLM.ground(vlm_meta["_img_url"], vlm_meta["img_size"], question, f"{top['value']} {top.get('unit') or ''}".strip())
+            W, H = CAT.image_size(CAT.image_file(d))
+            sx, sy = W / vlm_meta["img_size"][0], H / vlm_meta["img_size"][1]
+            top["evidence"] = [{"id": f"B{i}", "label": f"model pointer {i + 1}", "kind": "pointer",
+                                "bbox": [b[0] * sx, b[1] * sy, b[2] * sx, b[3] * sy], "approximate": True} for i, b in enumerate(boxes)]
+            cost += C.COST_GROUND_CALL
+        except Exception as e:
+            trace.append({"route": "grounding (base model)", "result": f"failed: {type(e).__name__}"})
+
+    if top is None:
         trace.append({"route": "answer", "result": "abstained"})
         res = {"value": None, "unit": None, "confidence": None, "method": "none", "evidence": [], "sources": []}
+    else:
+        conf = final_confidence(top, ranked, scope_key=scope_key)
+        res = {**top, "confidence": conf, "method": top.get("method") if top["source"] == "exact" else SOURCE_METHOD.get(top["source"], top["source"])}
 
     conf = res.get("confidence")
     reasons = []
@@ -362,18 +514,28 @@ async def ask(drawing_id, question, lang=None, use_vlm=True, use_cache=True):
     for f in res.get("flags", []):
         reasons.append({"unnamed_numbered_room": "An unnamed numbered room is included; check whether it belongs to the apartment.",
                         "unprinted_area": "Some areas are not printed on the drawing and were computed from polygons.",
-                        "ambiguous_room_label": "Several rooms share this label.",
+                        "ambiguous_room_label": "Several rooms share this label: one area per room is listed.",
+                        "sum_of_printed_room_areas": "No printed total: this is the sum of the printed room areas.",
+                        "several_totals": "Several different totals are printed on the drawing.",
                         "space_without_area": "Some spaces have no area in the model."}.get(f, f))
-    # never present a near-zero-confidence model guess as an answer (the user saw a confident-looking "50 m²" with a
-    # box over several rooms): keep it only as a suggestion and drop its approximate pointer boxes
+    if res["value"] is not None and dec.get("decider") == "judge" and (dec.get("judge") or {}).get("unsure"):
+        reasons.append("The decision model was unsure between the candidates.")
+    # never present a near-zero-confidence guess as an answer: keep it only as a suggestion (no approximate boxes)
     suggested = None
-    if res["value"] is not None and res["method"] in ("vlm", "cache") and (conf is None or conf < C.CONF_SUGGEST):
+    if res["value"] is not None and res["method"] not in ("dxf-exact", "ifc-exact") and (conf is None or conf < C.CONF_SUGGEST):
         suggested = res["value"]
         res = {**res, "value": None, "evidence": [e for e in res.get("evidence", []) if not e.get("approximate")]}
-        reasons = [f"The model's best guess ({suggested}{' ' + res['unit'] if res.get('unit') else ''}) has very low confidence "
-                   f"({0 if conf is None else round(conf, 2)}), so it is not shown as an answer. This question kind is not "
-                   "covered by the exact or detector routes for this drawing."]
-    ref = reference_for(d, question)
+        reasons = [f"The best candidate ({suggested}{' ' + res['unit'] if res.get('unit') and res['unit'] not in ('count', 'text') else ''}, "
+                   f"{res.get('source_label') or res['method']}) has very low confidence ({0 if conf is None else round(conf, 2)}), "
+                   "so it is not shown as an answer. The other candidates below are hints."]
+    ranked_out = []
+    for i, c in enumerate(ranked):
+        ranked_out.append({"rank": i + 1, "id": c["id"], "value": c["value"], "unit": c.get("unit"), "scope": c.get("scope"),
+                           "source": c["source"], "source_label": c.get("source_label"),
+                           "method": c.get("method") if c["source"] == "exact" else SOURCE_METHOD.get(c["source"], c["source"]),
+                           "confidence": round(c["confidence"], 4) if isinstance(c.get("confidence"), (int, float)) else None,
+                           "evidence": c.get("evidence") or [], "reason": c.get("reason"), "agree_with": c.get("agree_with", []),
+                           "flags": c.get("flags", [])})
     out = {
         "drawing_id": d["id"], "question": question, "lang": lang or CAT._lang_of(question),
         "answer": res["value"], "unit": res.get("unit"), "method": res["method"],
@@ -384,7 +546,11 @@ async def ask(drawing_id, question, lang=None, use_vlm=True, use_cache=True):
         "evidence": res.get("evidence", []), "sources": res.get("sources", []), "note": res.get("note"),
         "suggested_answer": suggested, "cost_eur": round(cost, 7), "latency_ms": int((time.time() - t0) * 1000), "route_trace": trace,
         "ground_truth_eligible": res["method"] in ("dxf-exact", "ifc-exact"),
+        "ranked_candidates": ranked_out, "decider": dec["decider"], "question_scope": q_scope,
+        "judge": {k: v for k, v in (dec.get("judge") or {}).items() if k != "raw"} or None,
     }
+    # dataset label for the UI: looked up only AFTER the decision, never passed to any route or the judge
+    ref = reference_for(d, question)
     if ref is not None and ref.get("answer") is not None:
         out["reference"] = {"answer": ref["answer"], "unit": ref.get("unit"), "source": "dataset label (not shown to the model)",
                             "match": _check_ref(ref, res["value"])}

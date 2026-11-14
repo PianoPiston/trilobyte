@@ -1,0 +1,142 @@
+{
+ "note": "calibrated on VAL only by scripts/eval_judge.py (892 questions)",
+ "source_order": {
+  "count:count_doors": [
+   "detector",
+   "vlm"
+  ],
+  "count:count_floors": [
+   "vlm"
+  ],
+  "count:count_room_type:balcony": [
+   "vlm",
+   "detector",
+   "text"
+  ],
+  "count:count_room_type:bath": [
+   "vlm",
+   "detector",
+   "text"
+  ],
+  "count:count_room_type:bedroom": [
+   "vlm",
+   "detector",
+   "text"
+  ],
+  "count:count_room_type:kitchen": [
+   "vlm",
+   "detector",
+   "text"
+  ],
+  "count:count_room_type:wc": [
+   "vlm",
+   "detector",
+   "text"
+  ],
+  "count:count_saunas": [
+   "vlm",
+   "detector",
+   "text"
+  ],
+  "count:count_symbol:showers_baths": [
+   "vlm",
+   "detector"
+  ],
+  "count:count_symbol:sink": [
+   "detector",
+   "vlm"
+  ],
+  "count:count_symbol:toilet": [
+   "vlm",
+   "detector"
+  ],
+  "count:count_windows": [
+   "detector",
+   "vlm"
+  ]
+ },
+ "agreement_conf": {
+  "count:count_room_type:bath": {
+   "detector+vlm": 0.97
+  },
+  "count:count_room_type:kitchen": {
+   "text+vlm": 0.97,
+   "detector+vlm": 0.97,
+   "text+detector+vlm": 0.97
+  },
+  "count:count_room_type:wc": {
+   "text+detector": 0.97,
+   "text+vlm": 0.97,
+   "detector+vlm": 0.97,
+   "text+detector+vlm": 0.97
+  },
+  "count:count_saunas": {
+   "text+vlm": 0.97,
+   "detector+vlm": 0.97,
+   "text+detector+vlm": 0.97
+  },
+  "count:count_symbol:showers_baths": {
+   "detector+vlm": 0.97
+  }
+ },
+ "veto_sources": {
+  "count:count_doors": [],
+  "count:count_floors": [
+   "vlm"
+  ],
+  "count:count_room_type:balcony": [
+   "vlm",
+   "detector"
+  ],
+  "count:count_room_type:bath": [
+   "vlm",
+   "detector"
+  ],
+  "count:count_room_type:bedroom": [
+   "vlm"
+  ],
+  "count:count_room_type:kitchen": [
+   "vlm",
+   "detector"
+  ],
+  "count:count_room_type:wc": [
+   "vlm",
+   "detector",
+   "text"
+  ],
+  "count:count_saunas": [
+   "detector",
+   "vlm"
+  ],
+  "count:count_symbol:showers_baths": [],
+  "count:count_symbol:sink": [],
+  "count:count_symbol:toilet": [
+   "vlm"
+  ],
+  "count:count_windows": []
+ },
+ "judge_scopes": [
+  "count:count_symbol:sink"
+ ],
+ "conf_cap": {
+  "count:count_doors": 0.65,
+  "count:count_room_type:bedroom": 0.65,
+  "count:count_symbol:showers_baths": 0.65,
+  "count:count_symbol:sink": 0.65,
+  "count:count_symbol:toilet": 0.65,
+  "count:count_windows": 0.65
+ },
+ "deterministic_scopes": [
+  "count:count_doors",
+  "count:count_floors",
+  "count:count_room_type:balcony",
+  "count:count_room_type:bath",
+  "count:count_room_type:bedroom",
+  "count:count_room_type:kitchen",
+  "count:count_room_type:wc",
+  "count:count_saunas",
+  "count:count_symbol:showers_baths",
+  "count:count_symbol:toilet",
+  "count:count_windows"
+ ]
+}

@@ -92,6 +92,17 @@ async def standardized(did: str):
     return JSONResponse(doc)
 
 
+@app.get("/api/drawings/{did}/words")
+async def words(did: str, compute: bool = False):
+    """words layer of a drawing: printed text with boxes in image px (PDF vector text or OCR; OCR is model output)"""
+    d = _get(did)
+    w = await asyncio.to_thread(E.words_for, d, compute)
+    if not w:
+        return {"available": False, "words": []}
+    return {"available": True, "method": w.get("method"), "engine": w.get("engine"), "seconds": w.get("seconds"),
+            "words": [{"text": x["text"], "bbox": x["bbox"], "conf": x.get("conf")} for x in w.get("words", [])]}
+
+
 @app.get("/api/drawings/{did}/context")
 async def context(did: str):
     d = _get(did)

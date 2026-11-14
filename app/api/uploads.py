@@ -112,6 +112,18 @@ def _run_detector(d, img_path):
     return {"ok": True, "seconds": round(time.time() - t0, 1), "n_detections": len(dets), "counts": counts}
 
 
+def _run_words(d):
+    """words layer at upload time: PDF vector text (exact) or OCR (RapidOCR, CPU)"""
+    try:
+        from . import engine as E
+        w = E.words_for(d, compute=True)
+        if not w:
+            return {"ok": False, "error": "no words layer"}
+        return {"ok": True, "method": w.get("method"), "n_words": len(w.get("words", [])), "seconds": w.get("seconds")}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"[:200]}
+
+
 # ------------------------------------------------------------------------------------------------ ingest
 class UploadError(ValueError):
     pass
@@ -174,6 +186,7 @@ def ingest(filename, data, title=None):
         "uploaded_at": datetime.datetime.now().isoformat(timespec="seconds"), "image_size": [w, h],
     }
     d["detector"] = _run_detector(d, img_path)
+    d["words"] = _run_words(d)
     json.dump(d, open(os.path.join(p, "meta.json"), "w", encoding="utf-8"), ensure_ascii=False)
     return d
 

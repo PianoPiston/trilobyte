@@ -194,3 +194,15 @@ table.data th { background: #f7f8fa; font-weight: 600; color: var(--ink-2); }
 .upload-recent { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .spinner { width: 14px; height: 14px; border: 2px solid #c9d3e3; border-top-color: #1f3a68; border-radius: 50%; display: inline-block; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* words layer + ranked candidates */
+.overlay .word { fill: rgba(13, 155, 181, 0.10); stroke: #0d9bb5; stroke-width: 1.5; }
+.overlay .word:hover { fill: rgba(13, 155, 181, 0.3); }
+.words-toggle { display: inline-flex; margin: 0 0 6px 2px; font-size: 0.84rem; }
+.m-text { background: #e3f4f7; color: #0b6f82; }
+.cands { margin: 8px 0; }
+.cands ul { list-style: none; margin: 4px 0 0; padding: 0; }
+.cands li.cand { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; padding: 6px 8px; border-radius: 7px; cursor: pointer; font-size: 0.86rem; border: 1px solid transparent; }
+.cands li.cand:hover { background: #f5f6f8; } .cands li.cand.on { background: #fff1ea; border-color: #f3c3a8; }
+.cands .cv { font-weight: 600; min-width: 48px; } .cands .cs { flex: 1; color: var(--ink-2); } .cands .cc { font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.cands .cr { flex-basis: 100%; padding-left: 2px; }

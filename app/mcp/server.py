@@ -29,7 +29,10 @@ def _slim_answer(a):
           | ({"polygon_points": len(e["polygon"]), "bbox": _bbox(e["polygon"])} if e.get("polygon") else {}) for e in a.get("evidence", [])[:60]]
     return {k: a.get(k) for k in ("drawing_id", "question", "answer", "unit", "method", "method_label", "confidence", "needs_check",
                                   "needs_check_reasons", "sources", "note", "cost_eur", "latency_ms", "reference", "ground_truth_eligible")} | {
-        "evidence": ev, "evidence_total": len(a.get("evidence", [])), "evidence_frame": "pixels of the drawing image (GET /api/drawings/{id}/image)"}
+        "evidence": ev, "evidence_total": len(a.get("evidence", [])), "evidence_frame": "pixels of the drawing image (GET /api/drawings/{id}/image)",
+        "suggested_answer": a.get("suggested_answer"), "decider": a.get("decider"),
+        "ranked_candidates": [{k: c.get(k) for k in ("rank", "value", "unit", "scope", "source_label", "confidence", "reason")}
+                              for c in a.get("ranked_candidates", [])[:6]]}
 
 
 def _bbox(poly):

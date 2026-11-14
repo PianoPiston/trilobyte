@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, fmtValue } from "../api";
-import type { Answer, DrawingFull, Example } from "../api";
+import type { Answer, Candidate, DrawingFull, Example, Word } from "../api";
 import Viewer, { boxOf } from "../components/Viewer";
 import type { ViewerHandle } from "../components/Viewer";
 import AnswerCard from "../components/AnswerCard";
@@ -22,12 +22,16 @@ export default function DrawingView() {
   const [hover, setHover] = useState<string | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   const [showLayer, setShowLayer] = useState(false);
+  const [showWords, setShowWords] = useState(false);
+  const [words, setWords] = useState<Word[] | null>(null);
+  const [wordsMsg, setWordsMsg] = useState<string | null>(null);
+  const [cand, setCand] = useState<Candidate | null>(null);
   const [tab, setTab] = useState<"evidence" | "std" | "context" | "about">("evidence");
   const viewer = useRef<ViewerHandle>(null);
   const evList = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setD(null); setAns(null); setErr(null); setSel(null);
+    setD(null); setAns(null); setErr(null); setSel(null); setWords(null); setShowWords(false); setCand(null); setWordsMsg(null);
     api.drawing(id).then((x) => {
       setD(x);
       setTab(x.track === "historic" ? "context" : "evidence");
@@ -39,7 +43,7 @@ export default function DrawingView() {
 
   const ask = async (question: string, dd = d) => {
     if (!dd || question.trim().length < 2) return;
-    setQ(question); setBusy(true); setSel(null); setTab("evidence");
+    setQ(question); setBusy(true); setSel(null); setTab("evidence"); setCand(null);
     try {
       const a = await api.ask(dd.id, question, lang === "all" ? undefined : lang);
       setAns(a);
@@ -70,7 +74,20 @@ export default function DrawingView() {
   if (err && !d) return <div className="page"><div className="error">Could not load drawing: {err}</div></div>;
   if (!d) return <div className="page"><div className="loading">Loading…</div></div>;
 
-  const evidence = ans?.evidence || [];
+  const evidence = cand ? cand.evidence : ans?.evidence || [];
+  const pickCand = (c: Candidate | null) => {
+    setCand(c); setSel(null);
+    const bs = (c ? c.evidence : ans?.evidence || []).map(boxOf).filter(Boolean) as number[][];
+    if (bs.length) viewer.current?.focus([Math.min(...bs.map((b) => b[0])), Math.min(...bs.map((b) => b[1])), Math.max(...bs.map((b) => b[2])), Math.max(...bs.map((b) => b[3]))]);
+  };
+  const toggleWords = (on: boolean) => {
+    setShowWords(on);
+    if (on && words === null) {
+      setWordsMsg("reading text…");
+      api.words(d.id, true).then((w) => { setWords(w.words); setWordsMsg(w.available ? `${w.words.length} words · ${w.method === "pdf" ? "PDF text" : "OCR"}` : "no text found"); })
+        .catch(() => setWordsMsg("text layer failed"));
+    }
+  };
   const placeholder = lang === "fi" ? "Kysy piirustuksesta, esim. Kuinka monta makuuhuonetta?" : "Ask about this drawing, e.g. How many bedrooms are there?";
 
   return (
@@ -88,7 +105,13 @@ export default function DrawingView() {
             </label>
           )}
         </div>
+        {d.track === "modern" && (
+          <label className="toggle words-toggle" title="Printed text read from the drawing (PDF vector text, or OCR for scans)">
+            <input type="checkbox" checked={showWords} onChange={(e) => toggleWords(e.target.checked)} /> Text layer{wordsMsg ? ` (${wordsMsg})` : ""}
+          </label>
+        )}
         <Viewer ref={viewer} src={d.image_url} size={d.image_size} evidence={evidence} layer={d.std_layer} showLayer={showLayer}
+          words={words} showWords={showWords}
           hoverId={hover} selectedId={sel} onHover={setHover}
           onSelect={(s) => { setSel(s); if (s) setTab("evidence"); }} />
         <CreditLine d={d} />
@@ -115,7 +138,7 @@ export default function DrawingView() {
         </form>
 
         {busy && <div className="answer-card loading-card"><div className="spinner" /> Routing the question…</div>}
-        {!busy && ans && <AnswerCard a={ans} onEvidence={() => setTab("evidence")} />}
+        {!busy && ans && <AnswerCard a={ans} onEvidence={() => setTab("evidence")} activeCand={cand?.id ?? null} onCandidate={pickCand} />}
         {!busy && !ans && (
           <div className="hint-card">
             <b>How it works.</b> Each question goes to the cheapest route that can answer it exactly (CAD/IFC parsers), then to the
