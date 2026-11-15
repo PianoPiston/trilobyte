@@ -7,6 +7,7 @@ import httpx
 from server.contextdev import DOCUMENTS, ContextDev, parse_deprecations
 from server.db import Database
 from server.web import CachedWebClient
+from server.service import _latest_date
 
 
 OPENAI_TABLE = """
@@ -26,6 +27,34 @@ def test_replacement_models_do_not_become_deprecation_events():
     assert event["shutdown_dates"] == ["March 26, 2026"]
     assert event["announcement_dates"] == ["September 26, 2025"]
     assert "gpt-4.1" in event["quote"]
+
+
+def test_openai_affected_model_columns_and_historical_notes_do_not_contaminate_events():
+    text = """
+| Shutdown date | Affected model | Status | Recommended replacement | Notice date |
+| --- | --- | --- | --- | --- |
+| **Mar 26, 2026** | `gpt-4-0314` | Deprecated | `gpt-5`, or `gpt-4.1` for latency-sensitive tasks | Sep 26, 2025 |
+| **Oct 27, 2025** | `o1-mini` | Deprecated | `o4-mini` | Apr 28, 2025 |
+
+### Historical notes
+- An old announcement mentioned June 13, 2024 and linked to a shutdown notice for `gpt-4-0314`.
+"""
+    events = parse_deprecations(text, "OpenAI")
+    assert {event["model"] for event in events} == {"gpt-4-0314", "o1-mini"}
+    first = next(event for event in events if event["model"] == "gpt-4-0314")
+    second = next(event for event in events if event["model"] == "o1-mini")
+    assert first["replacement"] == "gpt-5"
+    assert first["shutdown_dates"] == ["Mar 26, 2026"]
+    assert first["announcement_dates"] == ["Sep 26, 2025"]
+    assert "old announcement" not in first["quote"]
+    assert second["replacement"] == "o4-mini"
+    assert second["shutdown_dates"] == ["Oct 27, 2025"]
+
+
+def test_latest_lifecycle_date_wins_over_initial_estimate():
+    assert _latest_date(["Jun 13, 2024", "Mar 26, 2026"]) == "2026-03-26T00:00:00Z"
+    assert _latest_date(["2026-11-01", "invalid"]) == "2026-11-01T00:00:00Z"
+    assert _latest_date([]) is None
 
 
 def test_unrelated_model_table_is_ignored():

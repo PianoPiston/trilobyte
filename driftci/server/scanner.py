@@ -33,6 +33,11 @@ def snippet_at(content: str, line: int) -> str:
     return lines[line - 1].strip()[:300] if 0 < line <= len(lines) else ""
 
 
+def comment_only(line: str) -> bool:
+    stripped = line.strip()
+    return stripped.startswith(("//", "#", "/*", "*", "<!--"))
+
+
 def evidence_for(content: str, path: str, needle: str, reason: str) -> list[dict]:
     result = []
     for number, line in enumerate(content.splitlines(), 1):
@@ -48,6 +53,8 @@ def model_evidence(files: Mapping[str, str], model: str | None = None) -> list[d
         if PurePosixPath(path).name in MANIFEST_NAMES or PurePosixPath(path).suffix not in CONFIG_SUFFIXES:
             continue
         for number, line in enumerate(content.splitlines(), 1):
+            if comment_only(line):
+                continue
             matches = MODEL_RE.findall(line)
             for match in matches:
                 match = match.rstrip(".-")
@@ -175,7 +182,8 @@ def package_usage(files: Mapping[str, str], name: str, ecosystem: str) -> int:
         else:
             module = name.replace("-", "_")
             patterns = [rf"(?:^|\n)\s*(?:from|import)\s+{re.escape(module)}(?:\.|\s|$)"]
-        if any(re.search(pattern, content) for pattern in patterns):
+        executable_text = "\n".join(line for line in content.splitlines() if not comment_only(line))
+        if any(re.search(pattern, executable_text) for pattern in patterns):
             count += 1
     return count
 
@@ -186,7 +194,7 @@ def middleware_evidence(files: Mapping[str, str]) -> list[dict]:
             continue
         content = files[path]
         for number, line in enumerate(content.splitlines(), 1):
-            if re.search(r"auth|token|session|cookie|jwt", line, re.I):
+            if not comment_only(line) and re.search(r"auth|token|session|cookie|jwt", line, re.I):
                 return [{"file": path, "line": number, "snippet": line.strip()[:300], "reason": "Authorization-related middleware; reachability is a heuristic, not proof of exploitability"}]
         return [{"file": path, "line": 1, "snippet": snippet_at(content, 1), "reason": "Next.js middleware present; verify deployment behavior"}]
     return []

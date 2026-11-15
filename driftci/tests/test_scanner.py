@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from server.scanner import inventory, model_evidence, production_models, read_text_tree
+from server.scanner import inventory, middleware_evidence, model_evidence, production_models, read_text_tree
 
 from conftest import EXAMPLE
 
@@ -18,12 +18,21 @@ def test_docs_never_inflate_production_models_or_call_sites():
     files = {
         "README.md": "Use gpt-4-0314 and o1-mini for this example.",
         "notes.txt": "gpt-4-0314",
-        "src/one.ts": 'const model = "gpt-4-0314";',
+        "src/one.ts": '// explains gpt-4-0314 retirement\nconst model = "gpt-4-0314";',
         "src/two.py": 'MODEL = "gpt-4-0314"',
         "config.json": '{"review_model": "o1-mini"}',
     }
     assert production_models(files) == ["gpt-4-0314", "o1-mini"]
     assert len(model_evidence(files, "gpt-4-0314")) == 2
+
+
+def test_middleware_reachability_ignores_comment_keywords():
+    files = {"middleware.ts": "// authorization is discussed here\nconst session = request.cookies.get('ops_session');\nreturn NextResponse.next();"}
+    evidence = middleware_evidence(files)
+    assert len(evidence) == 1
+    assert evidence[0]["line"] == 2
+    assert "ops_session" in evidence[0]["snippet"]
+    assert "discussed" not in evidence[0]["snippet"]
 
 
 def test_unresolved_ranges_remain_inventory_without_claiming_an_exact_version():

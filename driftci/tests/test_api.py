@@ -76,6 +76,12 @@ def test_incident_actions_validate_order_and_resolution(client):
     assert {item["id"] for item in incidents["history"]} == {"inc-CVE-2025-29927", "inc-CVE-2024-34351"}
     assert client.post(f"{base}/contain", json={"status": "pending"}).status_code == 409
     assert client.post(f"{base}/resolve", json={"status": "invalid"}).status_code == 422
+    report = client.get("/api/incidents/inc-CVE-2025-29927/report")
+    assert report.status_code == 200
+    assert report.headers["content-type"].startswith("text/markdown")
+    assert "| Resolve & document | done |" in report.text
+    assert "GHSA-f82v-jwr5-mffw" in report.text
+    assert client.get("/api/incidents/not-an-incident/report").status_code == 404
 
 
 def test_replay_is_explicit_historical_replay(client):

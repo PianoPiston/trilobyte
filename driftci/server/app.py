@@ -1,7 +1,8 @@
 """FastAPI transport layer and safe optional SPA hosting."""
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Literal
 
@@ -39,10 +40,53 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         headers = {"User-Agent": "DriftCI/1.0 (+read-only source intelligence)", "Accept": "application/json"}
         async with httpx.AsyncClient(timeout=config.request_timeout, follow_redirects=False, transport=transport, headers=headers) as http:
             app.state.service = DriftService(db, config, http)
-            yield
-            db.close()
+            app.state.scan_lock = asyncio.Lock()
+            app.state.last_scan_requested = float("-inf")
+
+            async def periodic_watch():
+                while True:
+                    await asyncio.sleep(config.watch_interval_seconds)
+                    try:
+                        await gated_scan(lambda: app.state.service.scan(), force=True)
+                    except HTTPException:
+                        pass  # A browser-triggered scan already owns the shared lock.
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        db.add_activity("watcher", "Scheduled source refresh failed", type(exc).__name__)
+
+            watcher = asyncio.create_task(periodic_watch()) if config.watch_interval_seconds > 0 and not config.offline else None
+            app.state.watcher = watcher
+            try:
+                yield
+            finally:
+                if watcher:
+                    watcher.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await watcher
+                db.close()
 
     app = FastAPI(title="DriftCI", version="1.0.0", lifespan=lifespan)
+
+    async def gated_scan(operation, force: bool = False):
+        """Serialize network refreshes and rate-limit public callers without leaking credentials."""
+        lock = app.state.scan_lock
+
+        def check_cooldown():
+            if force:
+                return
+            elapsed = asyncio.get_running_loop().time() - app.state.last_scan_requested
+            remaining = config.scan_cooldown_seconds - elapsed
+            if remaining > 0:
+                raise HTTPException(429, f"A source scan ran recently. Retry in {max(1, int(remaining + .5))} seconds.", headers={"Retry-After": str(max(1, int(remaining + .5)))})
+
+        if lock.locked():
+            raise HTTPException(429, "A source scan is already in progress. Retry shortly.", headers={"Retry-After": "3"})
+        check_cooldown()
+        async with lock:
+            check_cooldown()
+            app.state.last_scan_requested = asyncio.get_running_loop().time()
+            return await operation()
 
     @app.middleware("http")
     async def response_headers(request: Request, call_next):
@@ -57,7 +101,9 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
 
     @app.get("/api/health")
     def health(request: Request):
-        return service(request).health()
+        payload = service(request).health()
+        payload["watcher"] = {"enabled": config.watch_interval_seconds > 0 and not config.offline, "interval_seconds": config.watch_interval_seconds, "scan_cooldown_seconds": config.scan_cooldown_seconds}
+        return payload
 
     @app.get("/api/bootstrap")
     def bootstrap(request: Request):
@@ -77,7 +123,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
 
     @app.post("/api/scan")
     async def scan(request: Request):
-        return await service(request).scan()
+        return await gated_scan(lambda: service(request).scan())
 
     @app.post("/api/demo/replay")
     def replay(request: Request):
@@ -90,6 +136,14 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     @app.get("/api/incidents")
     def incidents(request: Request):
         return service(request).incident_payload()
+
+    @app.get("/api/incidents/{ident}/report")
+    def incident_report(ident: str, request: Request):
+        try:
+            report = service(request).incident_report(ident)
+            return PlainTextResponse(report, media_type="text/markdown", headers={"Content-Disposition": f'attachment; filename="{ident.replace("/", "_")}-incident.md"'})
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
 
     @app.post("/api/incidents/{ident}/actions/{action_id}")
     def incident_action(ident: str, action_id: str, body: ActionRequest, request: Request):
@@ -153,7 +207,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     @app.post("/api/repositories/connect")
     async def connect(body: RepositoryRequest, request: Request):
         try:
-            return await service(request).connect(body.url)
+            return await gated_scan(lambda: service(request).connect(body.url))
         except RepositoryError as exc:
             raise HTTPException(400, str(exc)) from exc
 

@@ -19,6 +19,8 @@ class Settings:
     request_timeout: float
     web_dist: Path
     example_dir: Path
+    watch_interval_seconds: int = 0
+    scan_cooldown_seconds: int = 0
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -36,4 +38,6 @@ class Settings:
             request_timeout=float(os.environ.get("DRIFTCI_HTTP_TIMEOUT", "25")),
             web_dist=Path(os.environ.get("DRIFTCI_WEB_DIST", root / "web" / "dist")),
             example_dir=Path(os.environ.get("DRIFTCI_EXAMPLE_DIR", root / "examples" / "orders-ai")),
+            watch_interval_seconds=int(os.environ.get("DRIFTCI_WATCH_INTERVAL_SECONDS", "0")),
+            scan_cooldown_seconds=int(os.environ.get("DRIFTCI_SCAN_COOLDOWN_SECONDS", "0")),
         )
