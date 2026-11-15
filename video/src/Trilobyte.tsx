@@ -1,122 +1,153 @@
-import { AbsoluteFill, Audio, Img, Sequence, getInputProps, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
-
-const NAVY = "#14284a", ACCENT = "#e8743b", PAPER = "#f5f1e8";
-const FPS = 30;
-
+import { AbsoluteFill, Audio, Easing, Img, Sequence, continueRender, delayRender, getInputProps, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import timing from "./timing.json";
 
-type Visual =
-  | { kind: "title"; title: string; sub: string }
-  | { kind: "bullets"; title: string; bullets: string[] }
-  | { kind: "shot"; img: string; label: string; focus: [number, number, number] }
-  | { kind: "stats"; title: string; stats: [string, string][] }
-  | { kind: "pipeline" }
-  | { kind: "split"; title: string; bullets: string[]; img: string; focus: [number, number, number] };
+// Stoa brand (stoabuild.com), same tokens as the Trilobyte web app
+const BG = "#f2f3f5", INK = "#001d00", INK2 = "#2c412b", INK3 = "#617061", MOSS = "#adb7ad", MARK = "#c2452d";
+const SERIF = "Playfair, Georgia, serif", SANS = "Inter, system-ui, sans-serif", MONO = "JetBrainsMono, monospace";
+const FPS = 30, FADE = 10, W = 1920, H = 1080;
 
-// visuals per narration scene (the spoken text and durations come from script.json -> src/timing.json)
+const fontsReady = delayRender("fonts");
+Promise.all([["Playfair", "playfair-display"], ["Inter", "inter"], ["JetBrainsMono", "jetbrains-mono"]].map(([family, file]) =>
+  new FontFace(family, `url(${staticFile(`fonts/${file}-latin-wght-normal.woff2`)})`, { weight: "100 900" }).load().then((f) => document.fonts.add(f))))
+  .then(() => continueRender(fontsReady));
+
+// A clip is a still or a numbered frame sequence (public/cap/<seq>-000.png ...), shown until a fraction of its scene.
+// cam: the camera moves from the first to the second [centre x, centre y, zoom], in image fractions.
+type Cam = [number, number, number];
+type Clip = { img?: string; seq?: string; n?: number; until: number; cam: [Cam, Cam] };
+type Visual =
+  | { kind: "title" } | { kind: "problem" } | { kind: "trust" } | { kind: "close" }
+  | { kind: "shots"; label: string; clips: Clip[] };
+
 const VISUALS: Record<string, Visual> = {
-  title: { kind: "title", title: "Trilobyte", sub: "Make blueprints talk: answers you can verify in seconds" },
-  problem: { kind: "bullets", title: "The problem", bullets: [
-    "Site engineers spend hours hunting quantities in drawings",
-    "Scans, PDFs, CAD and BIM, all in different formats",
-    "AI that guesses is useless on site: a wrong number costs money"] },
-  upload: { kind: "shot", img: "01-home", label: "Upload any drawing · ask in English or Finnish", focus: [0.5, 0.35, 1.12] },
-  cad: { kind: "shot", img: "02-swiss-bedrooms", label: "CAD → exact answer: 8 bedrooms, each highlighted", focus: [0.45, 0.5, 1.18] },
-  ifc: { kind: "shot", img: "07-ifc", label: "BIM models → answers cite IFC element IDs", focus: [0.75, 0.4, 1.15] },
-  scan: { kind: "shot", img: "05-cubicasa-windows", label: "Scans: symbol detector + printed-text reading", focus: [0.45, 0.5, 1.15] },
-  decide: { kind: "pipeline" },
-  ranked: { kind: "shot", img: "04-cubicasa-bedrooms", label: "Best answer first, alternatives below", focus: [0.86, 0.6, 1.4] },
-  context: { kind: "split", title: "Context, not just pixels", bullets: [
-    "context.dev web search API pulls in project information",
-    "Archive records for historic drawings: 58% → 94%",
-    "In a company: internal documentation in the same slot",
-    "No need for perfect detection every time"], img: "08-historic", focus: [0.82, 0.3, 1.0] },
-  results: { kind: "stats", title: "Measured on held-out drawings", stats: [
-    ["47% → 81%", "accuracy: zero-shot → fine-tuned hybrid"],
-    ["99.2%", "precision when it answers on its own"],
-    ["€0.016", "per 1,000 questions"],
-    ["100% / 99.8%", "BIM models / CAD drawings"]] },
-  close: { kind: "bullets", title: "Trilobyte", bullets: [
-    "Standardized drawing format · web app · API · MCP server",
-    "Small fine-tuned models + exact geometry: cheap, private, verifiable",
-    "Every answer points to its evidence"] },
+  title: { kind: "title" },
+  problem: { kind: "problem" },
+  drop: { kind: "shots", label: "Drop in any floor plan", clips: [
+    { img: "home", until: 0.3, cam: [[0.72, 0.3, 1.15], [0.72, 0.3, 1.22]] },
+    { img: "uploading", until: 0.55, cam: [[0.72, 0.3, 1.3], [0.72, 0.3, 1.4]] },
+    { img: "up-summary", until: 1, cam: [[0.5, 0.5, 1], [0.42, 0.5, 1.1]] }] },
+  measured: { kind: "shots", label: "Rooms found and measured", clips: [
+    { img: "up-summary", until: 1, cam: [[0.35, 0.55, 1.2], [0.84, 0.3, 1.6]] }] },
+  concrete: { kind: "shots", label: "How much concrete for this floor?", clips: [
+    { img: "up-summary", until: 0.3, cam: [[0.84, 0.72, 1.6], [0.84, 0.7, 1.7]] },
+    { img: "up-concrete", until: 1, cam: [[0.55, 0.45, 1.05], [0.6, 0.4, 1.2]] }] },
+  prices: { kind: "shots", label: "Live prices from Finnish suppliers via context.dev", clips: [
+    { img: "sw-materials", until: 0.55, cam: [[0.85, 0.45, 1.3], [0.85, 0.45, 1.4]] },
+    { img: "sw-materials-2", until: 1, cam: [[0.85, 0.5, 1.4], [0.85, 0.6, 1.5]] }] },
+  room: { kind: "shots", label: "Price one room", clips: [{ img: "sw-room-price", until: 1, cam: [[0.5, 0.5, 1], [0.6, 0.45, 1.12]] }] },
+  ask: { kind: "shots", label: "Ask in plain language", clips: [
+    { seq: "sw-type", n: 34, until: 0.42, cam: [[0.83, 0.11, 1.9], [0.83, 0.11, 1.9]] },
+    { img: "sw-kitchen", until: 1, cam: [[0.5, 0.5, 1], [0.55, 0.5, 1.12]] }] },
+  measure: { kind: "shots", label: "Measure distances and areas", clips: [
+    { img: "measure-distance", until: 0.45, cam: [[0.35, 0.5, 1.4], [0.35, 0.5, 1.45]] },
+    { img: "measure-area", until: 1, cam: [[0.35, 0.55, 1.45], [0.35, 0.55, 1.5]] }] },
+  model3d: { kind: "shots", label: "Every plan in 3D", clips: [
+    { seq: "up3d", n: 60, until: 0.5, cam: [[0.38, 0.55, 1.25], [0.38, 0.55, 1.3]] },
+    { seq: "sw3d", n: 60, until: 1, cam: [[0.36, 0.55, 1.25], [0.36, 0.55, 1.3]] }] },
+  trust: { kind: "trust" },
+  close: { kind: "close" },
 };
-type T = { id: string; say: string; vo: string; voSec: number; sec: number };
+
+type T = { id: string; say: string; text: string; vo: string; voSec: number; sec: number };
 const SCENES = (timing.scenes as T[]).map((t) => ({ ...t, v: VISUALS[t.id] }));
 export const TOTAL = Math.ceil(timing.total * FPS);
 
+const ease = (f: number, a: number, b: number) => interpolate(f, [a, b], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+
 const Caption = ({ text, dur }: { text: string; dur: number }) => {
   const f = useCurrentFrame();
-  const o = interpolate(f, [0, 10, dur - 10, dur], [0, 1, 1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const o = interpolate(f, [0, 8, dur - 8, dur], [0, 1, 1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   return (
-    <div style={{ position: "absolute", left: 160, right: 160, bottom: 48, opacity: o, textAlign: "center" }}>
-      <span style={{ background: "rgba(10,20,40,0.82)", color: "white", fontSize: 34, lineHeight: 1.45, padding: "10px 22px",
-        borderRadius: 10, fontFamily: "Inter, Helvetica, Arial, sans-serif", boxDecorationBreak: "clone", WebkitBoxDecorationBreak: "clone" }}>{text}</span>
+    <div style={{ position: "absolute", left: 200, right: 200, bottom: 44, opacity: o, textAlign: "center" }}>
+      <span style={{ background: "rgba(0,29,0,0.86)", color: "white", fontSize: 32, lineHeight: 1.5, padding: "8px 20px", borderRadius: 8,
+        fontFamily: SANS, boxDecorationBreak: "clone", WebkitBoxDecorationBreak: "clone" }}>{text}</span>
     </div>
   );
 };
 
-const Brand = () => (
-  <div style={{ position: "absolute", top: 34, left: 48, color: NAVY, fontSize: 30, fontWeight: 800, fontFamily: "Inter, Helvetica, Arial, sans-serif", letterSpacing: 1 }}>
-    ▦ TRILOBYTE
-  </div>
-);
-
-const Title = ({ s }: { s: Extract<Visual, { kind: "title" }> }) => {
-  const f = useCurrentFrame(); const { fps } = useVideoConfig();
-  const p = spring({ frame: f, fps, config: { damping: 18 } });
+const ClipView = ({ c, from, to }: { c: Clip; from: number; to: number }) => {
+  const f = useCurrentFrame();
+  const k = Easing.inOut(Easing.quad)(ease(f, from, to));
+  const [x, y, z] = [0, 1, 2].map((i) => c.cam[0][i] + (c.cam[1][i] - c.cam[0][i]) * k);
+  // translate so (x, y) sits at the frame centre, without uncovering the frame edges
+  const tx = Math.min(0, Math.max(W * (1 - z), W / 2 - x * W * z)), ty = Math.min(0, Math.max(H * (1 - z), H / 2 - y * H * z));
+  const src = c.seq ? `cap/${c.seq}-${String(Math.min(c.n! - 1, Math.floor(ease(f, from, to) * c.n!))).padStart(3, "0")}.png` : `cap/${c.img}.png`;
   return (
-    <AbsoluteFill style={{ background: `linear-gradient(135deg, ${NAVY}, #2a4a7f)`, justifyContent: "center", alignItems: "center", fontFamily: "Inter, Helvetica, Arial, sans-serif" }}>
-      <div style={{ fontSize: 150, color: "white", fontWeight: 900, letterSpacing: 4, transform: `scale(${0.85 + 0.15 * p})`, opacity: p }}>▦ {s.title}</div>
-      <div style={{ fontSize: 46, color: "#ffd9c4", marginTop: 24, opacity: interpolate(f, [15, 35], [0, 1], { extrapolateRight: "clamp", extrapolateLeft: "clamp" }) }}>{s.sub}</div>
-      <div style={{ position: "absolute", bottom: 150, color: "#9fb3d6", fontSize: 28 }}>Junction 2026 · Stoa challenge · Verda compute</div>
+    <AbsoluteFill style={{ opacity: ease(f, from - FADE, from), transform: `translate(${tx}px, ${ty}px) scale(${z})`, transformOrigin: "0 0" }}>
+      <Img src={staticFile(src)} style={{ width: "100%", height: "100%" }} />
     </AbsoluteFill>
   );
 };
 
-const Bullets = ({ s }: { s: Extract<Visual, { kind: "bullets" }> }) => {
+const Shots = ({ s, dur }: { s: Extract<Visual, { kind: "shots" }>; dur: number }) => {
   const f = useCurrentFrame();
+  let start = 0;
   return (
-    <AbsoluteFill style={{ background: PAPER, padding: "150px 180px", fontFamily: "Inter, Helvetica, Arial, sans-serif" }}>
-      <Brand />
-      <div style={{ fontSize: 84, fontWeight: 800, color: NAVY, marginBottom: 50 }}>{s.title}</div>
-      {s.bullets.map((b, i) => {
-        const o = interpolate(f, [20 + i * 25, 40 + i * 25], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
-        return <div key={i} style={{ fontSize: 50, color: "#1e2a3a", margin: "26px 0", opacity: o, transform: `translateX(${(1 - o) * 40}px)` }}>
-          <span style={{ color: ACCENT, fontWeight: 900, marginRight: 24 }}>—</span>{b}</div>;
+    <AbsoluteFill style={{ background: BG }}>
+      {s.clips.map((c, i) => {
+        const from = start; start = Math.round(c.until * dur);
+        return f >= from - FADE && f < start + FADE ? <ClipView key={i} c={c} from={from} to={start} /> : null;
       })}
+      <div style={{ position: "absolute", top: 28, left: 28, background: INK, color: "white", fontSize: 30, fontWeight: 500, fontFamily: SANS,
+        padding: "12px 24px", borderRadius: 10, boxShadow: "0 10px 30px -12px rgba(0,0,0,.45)", opacity: ease(f, 4, 16), letterSpacing: "-0.01em" }}>{s.label}</div>
     </AbsoluteFill>
   );
 };
 
-const Shot = ({ s, dur }: { s: Extract<Visual, { kind: "shot" }>; dur: number }) => {
-  const f = useCurrentFrame();
-  const [fx, fy, z] = s.focus;
-  const k = interpolate(f, [0, dur], [0, 1], { extrapolateRight: "clamp" });
-  const scale = 1 + (z - 1) * k;
+const Title = () => {
+  const f = useCurrentFrame(); const { fps } = useVideoConfig();
+  const p = spring({ frame: f, fps, config: { damping: 20 } });
   return (
-    <AbsoluteFill style={{ background: "#0d1a30" }}>
-      <AbsoluteFill style={{ transform: `scale(${scale})`, transformOrigin: `${fx * 100}% ${fy * 100}%` }}>
-        <Img src={staticFile(`shots/${s.img}.png`)} style={{ width: "100%", height: "100%" }} />
-      </AbsoluteFill>
-      <div style={{ position: "absolute", top: 90, left: 48, background: ACCENT, color: "white", fontSize: 36, fontWeight: 700,
-        padding: "12px 26px", borderRadius: 10, fontFamily: "Inter, Helvetica, Arial, sans-serif", boxShadow: "0 6px 24px rgba(0,0,0,.25)",
-        opacity: interpolate(f, [5, 20], [0, 1], { extrapolateRight: "clamp", extrapolateLeft: "clamp" }) }}>{s.label}</div>
+    <AbsoluteFill style={{ background: BG }}>
+      <div style={{ position: "absolute", left: 160, top: 300, width: 900 }}>
+        <div style={{ fontFamily: SERIF, fontSize: 170, color: INK, letterSpacing: "-0.03em", opacity: p, transform: `translateY(${(1 - p) * 30}px)` }}>Trilobyte</div>
+        <div style={{ fontFamily: SERIF, fontSize: 56, color: INK2, marginTop: 18, lineHeight: 1.15, opacity: ease(f, 14, 30) }}>Measure and price<br />any floor plan.</div>
+        <div style={{ fontFamily: SANS, fontSize: 26, color: INK3, marginTop: 64, opacity: ease(f, 24, 40) }}>Junction 2026 · Stoa: Make Blueprints Talk · Verda</div>
+      </div>
+      <div style={{ position: "absolute", right: 150, top: 150, width: 620, height: 780, background: "white", borderRadius: 14, overflow: "hidden",
+        boxShadow: "0 0 0 1px #0000000f, 0 30px 60px -30px #0000004d", opacity: ease(f, 8, 28), transform: `translateY(${(1 - ease(f, 8, 28)) * 24}px)` }}>
+        <Img src={staticFile("cap/plan.png")} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+      </div>
     </AbsoluteFill>
   );
 };
 
-const Stats = ({ s }: { s: Extract<Visual, { kind: "stats" }> }) => {
+const Problem = () => {
   const f = useCurrentFrame();
+  const items = ["Hours with a scale ruler", "A spreadsheet for every material", "Calls to suppliers for prices"];
   return (
-    <AbsoluteFill style={{ background: NAVY, padding: "140px 160px", fontFamily: "Inter, Helvetica, Arial, sans-serif" }}>
-      <div style={{ fontSize: 70, fontWeight: 800, color: "white", marginBottom: 60 }}>{s.title}</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "50px 80px" }}>
-        {s.stats.map(([big, small], i) => {
-          const o = interpolate(f, [15 + i * 30, 35 + i * 30], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
-          return <div key={i} style={{ opacity: o }}>
-            <div style={{ fontSize: 96, fontWeight: 900, color: "#ffb38a" }}>{big}</div>
-            <div style={{ fontSize: 36, color: "#c9d6ee" }}>{small}</div>
+    <AbsoluteFill style={{ background: BG, padding: "210px 180px" }}>
+      <div style={{ fontFamily: SANS, fontSize: 30, color: INK3, opacity: ease(f, 0, 12) }}>A site manager asks:</div>
+      <div style={{ fontFamily: SERIF, fontSize: 96, color: INK, lineHeight: 1.08, letterSpacing: "-0.02em", marginTop: 20, maxWidth: 1400, opacity: ease(f, 6, 22) }}>
+        “How much concrete do I order for this floor?”</div>
+      <div style={{ display: "flex", gap: 40, marginTop: 110 }}>
+        {items.map((t, i) => {
+          const o = ease(f, (4.6 + i * 1.1) * FPS, (4.6 + i * 1.1) * FPS + 12);
+          return <div key={i} style={{ flex: 1, opacity: o, transform: `translateY(${(1 - o) * 16}px)`, borderTop: `2px solid ${MARK}`, paddingTop: 22,
+            fontFamily: SANS, fontSize: 36, color: INK2 }}>{t}</div>;
+        })}
+      </div>
+    </AbsoluteFill>
+  );
+};
+
+const Trust = () => {
+  const f = useCurrentFrame();
+  const stats: [string, string][] = [
+    ["Exact", "rooms and areas from CAD and BIM geometry"],
+    ["99.85%", "area answers correct on held-out test drawings (650 of 651)"],
+    ["Flagged", "on scans the scale is estimated, shown and marked for a check"],
+    ["< €0.02", "per 1,000 questions with Qwen3.5-4B fine-tuned on Verda GPUs"]];
+  const at = [0.3, 2.8, 8.2, 11.6];
+  return (
+    <AbsoluteFill style={{ background: INK, padding: "150px 170px" }}>
+      <div style={{ fontFamily: SERIF, fontSize: 76, color: "white", letterSpacing: "-0.02em", opacity: ease(f, 0, 14) }}>Numbers you can order from</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "70px 110px", marginTop: 90 }}>
+        {stats.map(([big, small], i) => {
+          const o = ease(f, at[i] * FPS, at[i] * FPS + 14);
+          return <div key={i} style={{ opacity: o, transform: `translateY(${(1 - o) * 16}px)` }}>
+            <div style={{ fontFamily: MONO, fontSize: 92, fontWeight: 500, color: "white", letterSpacing: "-0.03em" }}>{big}</div>
+            <div style={{ fontFamily: SANS, fontSize: 32, color: MOSS, marginTop: 8, lineHeight: 1.35 }}>{small}</div>
           </div>;
         })}
       </div>
@@ -124,72 +155,45 @@ const Stats = ({ s }: { s: Extract<Visual, { kind: "stats" }> }) => {
   );
 };
 
-const box = (o: number, extra: object = {}) => ({ opacity: o, transform: `translateY(${(1 - o) * 20}px)`, background: "white", borderRadius: 14,
-  padding: "18px 26px", fontSize: 32, fontWeight: 700, color: NAVY, boxShadow: "0 6px 22px rgba(0,0,0,.18)", ...extra });
-
-const Pipeline = ({ dur }: { dur: number }) => {
-  const f = useCurrentFrame();
-  const at = (sec: number) => interpolate(f, [sec * FPS, sec * FPS + 12], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
-  const sources: [string, string, number][] = [
-    ["CAD parser (DXF)", "exact geometry", 5.2], ["BIM parser (IFC)", "exact quantities", 6.3], ["Symbol detector", "doors · windows · fixtures", 7.5],
-    ["Printed-text reader", "OCR / PDF text", 8.6], ["Fine-tuned vision model", "Qwen 4B + LoRA", 9.8]];
-  return (
-    <AbsoluteFill style={{ background: `linear-gradient(135deg, ${NAVY}, #24467a)`, fontFamily: "Inter, Helvetica, Arial, sans-serif", padding: "70px 90px" }}>
-      <div style={{ fontSize: 60, fontWeight: 800, color: "white", opacity: at(0.2) }}>Many decision makers, one final judge</div>
-      <div style={{ position: "absolute", left: 90, top: 210, display: "flex", flexDirection: "column", gap: 22, width: 560 }}>
-        {sources.map(([a, b, t], i) => <div key={i} style={box(at(t))}>{a}<div style={{ fontSize: 22, fontWeight: 500, color: "#5a6b85" }}>{b}</div></div>)}
-      </div>
-      <div style={{ position: "absolute", left: 690, top: 520, fontSize: 90, color: "#ffb38a", opacity: at(12) }}>→</div>
-      <div style={{ position: "absolute", left: 820, top: 420, width: 470, ...box(at(12.2), { background: ACCENT, color: "white", fontSize: 40, textAlign: "center", padding: "40px 30px" }) }}>
-        Decision layer<div style={{ fontSize: 26, fontWeight: 500, marginTop: 10 }}>calibrated rules + LLM judge<br />ranks every candidate</div></div>
-      <div style={{ position: "absolute", left: 1320, top: 520, fontSize: 90, color: "#ffb38a", opacity: at(14.5) }}>→</div>
-      <div style={{ position: "absolute", left: 1450, top: 380, width: 390, ...box(at(14.7), { fontSize: 34 }) }}>
-        1. Best answer<div style={{ fontSize: 24, fontWeight: 500, color: "#5a6b85", margin: "6px 0 14px" }}>+ evidence on the drawing + confidence</div>
-        2. Alternatives<div style={{ fontSize: 24, fontWeight: 500, color: "#5a6b85", margin: "6px 0 14px" }}>shown below, less confident</div>
-        ⚠ Needs check<div style={{ fontSize: 24, fontWeight: 500, color: "#5a6b85", marginTop: 6 }}>when sources disagree</div></div>
-    </AbsoluteFill>
-  );
-};
-
-const Split = ({ s, dur }: { s: Extract<Visual, { kind: "split" }>; dur: number }) => {
+const Close = () => {
   const f = useCurrentFrame();
   return (
-    <AbsoluteFill style={{ background: PAPER, fontFamily: "Inter, Helvetica, Arial, sans-serif" }}>
-      <Brand />
-      <div style={{ position: "absolute", left: 90, top: 140, width: 860 }}>
-        <div style={{ fontSize: 66, fontWeight: 800, color: NAVY, marginBottom: 40 }}>{s.title}</div>
-        {s.bullets.map((b, i) => {
-          const o = interpolate(f, [(1 + i * 3.6) * FPS, (1 + i * 3.6) * FPS + 15], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
-          return <div key={i} style={{ fontSize: 40, color: "#1e2a3a", margin: "24px 0", opacity: o }}><span style={{ color: ACCENT, fontWeight: 900, marginRight: 18 }}>—</span>{b}</div>;
-        })}
-      </div>
-      <div style={{ position: "absolute", right: 70, top: 120, width: 820, height: 760, overflow: "hidden", borderRadius: 16, boxShadow: "0 10px 40px rgba(0,0,0,.25)" }}>
-        <Img src={staticFile(`shots/${s.img}.png`)} style={{ width: 1600, position: "absolute", left: interpolate(f, [0, dur], [-780, -760]), top: -30 }} />
-      </div>
+    <AbsoluteFill style={{ background: BG, justifyContent: "center", alignItems: "center", textAlign: "center" }}>
+      <div style={{ fontFamily: SERIF, fontSize: 150, color: INK, letterSpacing: "-0.03em", opacity: ease(f, 0, 16) }}>Trilobyte</div>
+      <div style={{ fontFamily: SERIF, fontSize: 54, color: INK2, marginTop: 12, opacity: ease(f, 14, 30) }}>From drawing to order list in a minute.</div>
+      <div style={{ fontFamily: SANS, fontSize: 28, color: INK3, marginTop: 56, opacity: ease(f, 30, 46) }}>Web app · API · MCP server · every answer marked on the sheet</div>
     </AbsoluteFill>
   );
 };
 
 export const Trilobyte = () => {
+  const captions = !getInputProps().noCaptions;
   let from = 0;
   return (
-    <AbsoluteFill>
-      <Audio src={staticFile("music.wav")} volume={0.07} />
+    <AbsoluteFill style={{ background: BG }}>
+      <Audio src={staticFile("music.wav")} volume={0.06} />
       {SCENES.map((sc, i) => {
         const dur = Math.round(sc.sec * FPS); const start = from; from += dur; const v = sc.v;
         return (
-          <Sequence key={i} from={start} durationInFrames={dur}>
-            {v.kind === "title" && <Title s={v} />}
-            {v.kind === "bullets" && <Bullets s={v} />}
-            {v.kind === "shot" && <Shot s={v} dur={dur} />}
-            {v.kind === "stats" && <Stats s={v} />}
-            {v.kind === "pipeline" && <Pipeline dur={dur} />}
-            {v.kind === "split" && <Split s={v} dur={dur} />}
+          <Sequence key={i} from={start} durationInFrames={dur + (i < SCENES.length - 1 ? 8 : 0)}>
+            <SceneFade>
+              {v.kind === "title" && <Title />}
+              {v.kind === "problem" && <Problem />}
+              {v.kind === "shots" && <Shots s={v} dur={dur} />}
+              {v.kind === "trust" && <Trust />}
+              {v.kind === "close" && <Close />}
+            </SceneFade>
             <Sequence from={i === 0 ? 18 : 6}><Audio src={staticFile(sc.vo)} /></Sequence>
-            {!getInputProps().noCaptions && <Caption text={sc.say.replace("context dot dev", "context.dev")} dur={dur} />}
+            {captions && <Caption text={sc.text} dur={dur} />}
           </Sequence>
         );
       })}
     </AbsoluteFill>
   );
+};
+
+// each scene fades in over the tail of the previous one
+const SceneFade = ({ children }: { children: React.ReactNode }) => {
+  const f = useCurrentFrame();
+  return <AbsoluteFill style={{ opacity: ease(f, 0, 8) }}>{children}</AbsoluteFill>;
 };

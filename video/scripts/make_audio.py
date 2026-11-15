@@ -4,7 +4,7 @@ import numpy as np
 VOICE = sys.argv[1] if len(sys.argv) > 1 else "/home/user/models/piper/en_US-ryan-high.onnx"
 SPEED = float(sys.argv[2]) if len(sys.argv) > 2 else 0.95  # piper length_scale (<1 = faster)
 PAD = 0.7  # seconds of air after each line
-MIN = {"title": 6.5, "cad": 10, "decide": 15}
+MIN = {"title": 6, "drop": 6, "measure": 6, "model3d": 7, "close": 7.5}
 scenes = json.load(open("script.json"))
 timing = []
 for i, s in enumerate(scenes):
@@ -14,7 +14,7 @@ for i, s in enumerate(scenes):
     with wave.open(out) as w:
         dur = w.getnframes() / w.getframerate()
     sec = max(dur + PAD, MIN.get(s["id"], 0)) + (0.6 if i == 0 else 0)
-    timing.append({"id": s["id"], "say": s["say"], "vo": out.replace("public/", ""), "voSec": round(dur, 2), "sec": round(sec, 2)})
+    timing.append({"id": s["id"], "say": s["say"], "text": s.get("text", s["say"]), "vo": out.replace("public/", ""), "voSec": round(dur, 2), "sec": round(sec, 2)})
 total = sum(t["sec"] for t in timing)
 json.dump({"total": total, "scenes": timing}, open("src/timing.json", "w"), indent=1)
 print("total seconds", round(total, 1)); [print(f"  {t['id']:8s} vo {t['voSec']:5.1f}s scene {t['sec']:5.1f}s") for t in timing]

@@ -1,82 +1,101 @@
 {
- "total": 111.53,
+ "total": 107.07,
  "scenes": [
   {
    "id": "title",
-   "say": "Trilobyte answers questions about construction drawings, and shows exactly where every answer comes from.",
+   "say": "Trilobyte turns any floor plan into measured rooms, material quantities and today's prices.",
+   "text": "Trilobyte turns any floor plan into measured rooms, material quantities and today's prices.",
    "vo": "vo/00-title.wav",
-   "voSec": 5.82,
-   "sec": 7.12
+   "voSec": 5.18,
+   "sec": 6.6
   },
   {
    "id": "problem",
-   "say": "Site engineers spend hours digging quantities out of drawings. A chatbot that guesses doesn't help. On site, a wrong number costs real money.",
+   "say": "A site manager has one question: how much concrete do I order for this floor? Today that takes hours with a scale ruler, a spreadsheet and calls to suppliers.",
+   "text": "A site manager has one question: how much concrete do I order for this floor? Today that takes hours with a scale ruler, a spreadsheet and calls to suppliers.",
    "vo": "vo/01-problem.wav",
    "voSec": 9.03,
    "sec": 9.73
   },
   {
-   "id": "upload",
-   "say": "Upload a drawing, a scan, a PDF or a CAD plan, and ask in English or Finnish.",
-   "vo": "vo/02-upload.wav",
-   "voSec": 5.56,
-   "sec": 6.26
+   "id": "drop",
+   "say": "Drop in a plan. A phone scan, a PDF, a CAD file or a BIM model.",
+   "text": "Drop in a plan. A phone scan, a PDF, a CAD file or a BIM model.",
+   "vo": "vo/02-drop.wav",
+   "voSec": 3.95,
+   "sec": 6
   },
   {
-   "id": "cad",
-   "say": "When CAD data exists, Trilobyte converts the drawing into a standardized file and answers exactly. Eight bedrooms, each one highlighted on the plan.",
-   "vo": "vo/03-cad.wav",
-   "voSec": 9.5,
-   "sec": 10.2
+   "id": "measured",
+   "say": "Trilobyte finds the walls, rooms, doors and windows, reads the scale from printed areas or door widths, and measures every room.",
+   "text": "Trilobyte finds the walls, rooms, doors and windows, reads the scale from printed areas or door widths, and measures every room.",
+   "vo": "vo/03-measured.wav",
+   "voSec": 8.09,
+   "sec": 8.79
   },
   {
-   "id": "ifc",
-   "say": "For BIM models, every answer cites the IFC elements it was computed from.",
-   "vo": "vo/04-ifc.wav",
-   "voSec": 4.45,
-   "sec": 5.15
+   "id": "concrete",
+   "say": "The common questions are ready before you ask. Concrete for this floor: twenty four point three cubic metres, about forty seven hundred euros, and every room it counted is marked on the plan.",
+   "text": "The common questions are ready before you ask. Concrete for this floor: 24.3 m\u00b3, about \u20ac4,700, and every room it counted is marked on the plan.",
+   "vo": "vo/04-concrete.wav",
+   "voSec": 10.05,
+   "sec": 10.75
   },
   {
-   "id": "scan",
-   "say": "Scans are harder. A symbol detector finds doors, windows and fixtures, and we read every word printed on the sheet.",
-   "vo": "vo/05-scan.wav",
-   "voSec": 6.72,
-   "sec": 7.42
+   "id": "prices",
+   "say": "Prices are live. The context dot dev API searches Finnish supplier pages for concrete, levelling compound, flooring, plasterboard, paint and skirting, and each price links to its source.",
+   "text": "Prices are live. The context.dev API searches Finnish supplier pages for concrete, levelling compound, flooring, plasterboard, paint and skirting, and each price links to its source.",
+   "vo": "vo/05-prices.wav",
+   "voSec": 11.71,
+   "sec": 12.41
   },
   {
-   "id": "decide",
-   "say": "Instead of blindly trusting one model, several independent decision makers each propose an answer: the CAD and BIM parsers, the symbol detector, the printed text, and a fine-tuned vision model. A final decision layer, with a language model as judge, ranks them and picks the most reliable one.",
-   "vo": "vo/06-decide.wav",
-   "voSec": 17.84,
-   "sec": 18.54
+   "id": "room",
+   "say": "Click a room to price it on its own. Change the slab thickness or waste, and every quantity updates.",
+   "text": "Click a room to price it on its own. Change the slab thickness or waste, and every quantity updates.",
+   "vo": "vo/06-room.wav",
+   "voSec": 5.65,
+   "sec": 6.35
   },
   {
-   "id": "ranked",
-   "say": "You see the winner, the alternatives below it, and an honest needs check when the sources disagree.",
-   "vo": "vo/07-ranked.wav",
-   "voSec": 5.1,
-   "sec": 5.8
+   "id": "ask",
+   "say": "Or ask in plain language. Laminate for the four kitchens: forty one point seven square metres, seven hundred and ninety euros.",
+   "text": "Or ask in plain language. Laminate for the four kitchens: 41.7 m\u00b2, \u20ac790.",
+   "vo": "vo/07-ask.wav",
+   "voSec": 7.34,
+   "sec": 8.04
   },
   {
-   "id": "context",
-   "say": "Drawings rarely tell the whole story. Trilobyte uses the context dot dev web search API to pull in project information, like archive records. That lifted our historic accuracy from 58 to 94 percent. In a company, the same slot takes internal documentation, so we don't depend on perfect detection.",
-   "vo": "vo/08-context.wav",
-   "voSec": 18.92,
-   "sec": 19.62
+   "id": "measure",
+   "say": "Distance and area tools measure anything else, right on the sheet.",
+   "text": "Distance and area tools measure anything else, right on the sheet.",
+   "vo": "vo/08-measure.wav",
+   "voSec": 3.26,
+   "sec": 6
   },
   {
-   "id": "results",
-   "say": "We fine-tuned a small open model on Verda GPUs and measured everything on drawings it never saw. When Trilobyte answers on its own, it is right 99 percent of the time, for under two cents per thousand questions.",
-   "vo": "vo/09-results.wav",
-   "voSec": 11.87,
-   "sec": 12.57
+   "id": "model3d",
+   "say": "And every plan becomes a three D model you can orbit.",
+   "text": "And every plan becomes a 3D model you can orbit.",
+   "vo": "vo/09-model3d.wav",
+   "voSec": 2.64,
+   "sec": 7
+  },
+  {
+   "id": "trust",
+   "say": "On CAD and BIM drawings the geometry is exact. On held-out test drawings, area answers were right ninety nine point eight five percent of the time. On scans, the scale is estimated and flagged for a check. Other questions go to a small vision model we fine-tuned on Verda GPUs, for under two cents per thousand questions.",
+   "text": "On CAD and BIM drawings the geometry is exact. On held-out test drawings, area answers were right 99.85% of the time. On scans, the scale is estimated and flagged for a check. Other questions go to a small vision model we fine-tuned on Verda GPUs, for under 2 cents per 1,000 questions.",
+   "vo": "vo/10-trust.wav",
+   "voSec": 17.2,
+   "sec": 17.9
   },
   {
    "id": "close",
-   "say": "Standardized data, a web app, an API, and an MCP server any agent can use. Trilobyte. Every answer points to its evidence.",
-   "vo": "vo/10-close.wav",
-   "voSec": 8.42,
-   "sec": 9.12
+   "say": "Trilobyte. From drawing to order list in a minute, with the evidence on the sheet.",
+   "text": "Trilobyte. From drawing to order list in a minute, with the evidence on the sheet.",
+   "vo": "vo/11-close.wav",
+   "voSec": 4.22,
+   "sec": 7.5
   }
  ]
 }

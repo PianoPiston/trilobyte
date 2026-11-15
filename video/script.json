@@ -1,13 +1,14 @@
 [
- {"id":"title","say":"Trilobyte answers questions about construction drawings, and shows exactly where every answer comes from."},
- {"id":"problem","say":"Site engineers spend hours digging quantities out of drawings. A chatbot that guesses doesn't help. On site, a wrong number costs real money."},
- {"id":"upload","say":"Upload a drawing, a scan, a PDF or a CAD plan, and ask in English or Finnish."},
- {"id":"cad","say":"When CAD data exists, Trilobyte converts the drawing into a standardized file and answers exactly. Eight bedrooms, each one highlighted on the plan."},
- {"id":"ifc","say":"For BIM models, every answer cites the IFC elements it was computed from."},
- {"id":"scan","say":"Scans are harder. A symbol detector finds doors, windows and fixtures, and we read every word printed on the sheet."},
- {"id":"decide","say":"Instead of blindly trusting one model, several independent decision makers each propose an answer: the CAD and BIM parsers, the symbol detector, the printed text, and a fine-tuned vision model. A final decision layer, with a language model as judge, ranks them and picks the most reliable one."},
- {"id":"ranked","say":"You see the winner, the alternatives below it, and an honest needs check when the sources disagree."},
- {"id":"context","say":"Drawings rarely tell the whole story. Trilobyte uses the context dot dev web search API to pull in project information, like archive records. That lifted our historic accuracy from 58 to 94 percent. In a company, the same slot takes internal documentation, so we don't depend on perfect detection."},
- {"id":"results","say":"We fine-tuned a small open model on Verda GPUs and measured everything on drawings it never saw. When Trilobyte answers on its own, it is right 99 percent of the time, for under two cents per thousand questions."},
- {"id":"close","say":"Standardized data, a web app, an API, and an MCP server any agent can use. Trilobyte. Every answer points to its evidence."}
+ {"id": "title", "say": "Trilobyte turns any floor plan into measured rooms, material quantities and today's prices."},
+ {"id": "problem", "say": "A site manager has one question: how much concrete do I order for this floor? Today that takes hours with a scale ruler, a spreadsheet and calls to suppliers."},
+ {"id": "drop", "say": "Drop in a plan. A phone scan, a PDF, a CAD file or a BIM model."},
+ {"id": "measured", "say": "Trilobyte finds the walls, rooms, doors and windows, reads the scale from printed areas or door widths, and measures every room."},
+ {"id": "concrete", "say": "The common questions are ready before you ask. Concrete for this floor: twenty four point three cubic metres, about forty seven hundred euros, and every room it counted is marked on the plan.", "text": "The common questions are ready before you ask. Concrete for this floor: 24.3 m³, about €4,700, and every room it counted is marked on the plan."},
+ {"id": "prices", "say": "Prices are live. The context dot dev API searches Finnish supplier pages for concrete, levelling compound, flooring, plasterboard, paint and skirting, and each price links to its source.", "text": "Prices are live. The context.dev API searches Finnish supplier pages for concrete, levelling compound, flooring, plasterboard, paint and skirting, and each price links to its source."},
+ {"id": "room", "say": "Click a room to price it on its own. Change the slab thickness or waste, and every quantity updates."},
+ {"id": "ask", "say": "Or ask in plain language. Laminate for the four kitchens: forty one point seven square metres, seven hundred and ninety euros.", "text": "Or ask in plain language. Laminate for the four kitchens: 41.7 m², €790."},
+ {"id": "measure", "say": "Distance and area tools measure anything else, right on the sheet."},
+ {"id": "model3d", "say": "And every plan becomes a three D model you can orbit.", "text": "And every plan becomes a 3D model you can orbit."},
+ {"id": "trust", "say": "On CAD and BIM drawings the geometry is exact. On held-out test drawings, area answers were right ninety nine point eight five percent of the time. On scans, the scale is estimated and flagged for a check. Other questions go to a small vision model we fine-tuned on Verda GPUs, for under two cents per thousand questions.", "text": "On CAD and BIM drawings the geometry is exact. On held-out test drawings, area answers were right 99.85% of the time. On scans, the scale is estimated and flagged for a check. Other questions go to a small vision model we fine-tuned on Verda GPUs, for under 2 cents per 1,000 questions."},
+ {"id": "close", "say": "Trilobyte. From drawing to order list in a minute, with the evidence on the sheet."}
 ]
