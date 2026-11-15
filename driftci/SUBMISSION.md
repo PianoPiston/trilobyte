@@ -1,4 +1,6 @@
-# DriftCI — submission material
+# DriftCI — local submission draft
+
+This file is submission copy, not proof that a Junction platform entry has been finalized.
 
 ## Name
 
@@ -6,76 +8,79 @@
 
 ## Punchline
 
-**Dependabot for the web your code depends on.**
-
-Alternative: **Live dependency intelligence, from source change to reviewed fix.**
+**The web, watched. The blast radius, known.**
 
 ## Short description
 
-Dependabot sees package versions. It misses the documentation pages that say your production model is disappearing, your API is changing, or your middleware now has a critical advisory. DriftCI watches the operational web with Context.dev, maps material changes to exact repository usage, and gives engineering teams an evidence-backed response: a reviewable patch, targeted checks, and a CVE incident timeline. It closes the gap between “something changed on the internet” and “we fixed the affected code.”
+Production software depends on official web pages that package managers do not watch: model lifecycle tables, changing prices, SDK releases and operational policies. DriftCI uses Context.dev to retrieve those pages, remembers their snapshots, detects subsequent changes and maps them to exact repository dependencies and model identifiers. Reviewers get a citable decision, affected code locations and an accountable review state. OSV and CISA KEV feed the same repository-aware workflow for CVE response.
 
 ## Challenge fit
 
-DriftCI is a product that reacts to the live web. Context.dev retrieves current official model/API documentation and preserves source provenance. OSV and CISA add live vulnerability and known-exploited intelligence. Repository analysis connects those external changes to internal assets, while remediation and incident workflows turn the signal into action.
+**The Web, Watched.** DriftCI turns live web data into repository-aware decisions and review actions. Context.dev is used directly for both structured page scraping and scoped web search. The product adds durable baselines, observed-change diffs, source-to-code impact mapping, persistent review states and incident-response records.
 
 ## Technologies
 
-Context.dev Web API, FastAPI, Python, SQLite, httpx, OSV, CISA Known Exploited Vulnerabilities, GitHub REST API, React, TypeScript, Vite.
+Context.dev Web Scrape API, Context.dev Web Search API, FastAPI, Python, SQLite, httpx, OSV, CISA Known Exploited Vulnerabilities, GitHub REST/raw APIs, React, TypeScript, Vite.
 
 ## Innovation
 
-Existing tools alert on versions. DriftCI treats official documentation and security intelligence as operational dependencies, builds a source-to-code blast radius, and carries uncertain evidence explicitly. Its UX combines change radar and incident response rather than producing another feed of alerts.
+Dependency tools see manifests. Search tools return links. DriftCI connects both sides of an operational change: a normalized official-page snapshot and the exact code that depends on it. The first retrieval establishes a baseline; only a later differing snapshot becomes a change observation. Users can inspect added and removed lines, source hashes, retrieval mode and affected files instead of trusting an unexplained AI alert.
 
 ## Impact
 
-A missed model retirement can silently break customer workflows; a missed middleware advisory can expose protected routes. DriftCI reduces the time from public disclosure to understood, assigned and reviewable remediation. Every decision includes its evidence and remaining validation steps.
+A missed model retirement breaks production call sites; a price change alters unit economics; an SDK or framework release can require code review. DriftCI shortens the path from official publication to understood repository impact and accountable review. Its selective source reader works on large public repositories without archives or code execution, and its bounded source/vulnerability checks state their coverage rather than implying safety from missing findings.
 
 ## Implementation
 
-The demo includes deterministic repository scanning, exact model/source matching, dependency inventories, OSV version resolution, CISA KEV enrichment, source receipts, live-source caching and failure handling, real unified patch generation, targeted static validation, persistent incident actions and optional GitHub PR creation. It never executes an untrusted repository or pretends application tests ran.
+- Repository-derived OpenAI/Anthropic deprecation, pricing and release watches.
+- At most six Context.dev scrapes plus one official-domain search per refresh.
+- Six-hour caches, 6.2-second pacing and an 80-credit local daily ceiling with pre-request reservation.
+- Persistent normalized snapshots, content hashes, bounded added/removed diffs and observation history.
+- Exact model/dependency evidence, source receipts and human review transitions.
+- Public HTTPS custom watches; repository code is never sent to Context.dev.
+- Selective pinned-commit GitHub reads at 120 files / 4 MB by default.
+- OSV/CISA vulnerability analysis, reachability uncertainty, persistent checklists, CVE history and Markdown IR export.
+- 35 deterministic backend tests and real desktop/mobile Chromium workflows.
 
 ## Two-minute video outline
 
-### 0:00–0:12 — the invisible dependency
+### 0:00–0:15 — the invisible dependency
 
-Show code beside official documentation.
+Show an official model lifecycle page beside the two production model identifiers.
 
-> “Your production stack depends on web pages, not just package versions. This model is disappearing. This middleware has a new advisory. None of that necessarily appears in your package manager.”
+> “Your production stack depends on web pages, not just packages. This model retirement exists in official documentation and in two call sites. DriftCI connects the two.”
 
-### 0:12–0:28 — connect code to the live web
+### 0:15–0:40 — the web, watched
 
-Show DriftCI Mission Control and the repository inventory.
+Open **Web Watch**.
 
-> “DriftCI uses Context.dev to watch official operational documentation, then maps material changes against the repository’s real dependencies and source files.”
+> “Context.dev retrieves five relevant official pages and one scoped research set for this repository. DriftCI paces requests, caches them for six hours and enforces a daily credit ceiling. Every first retrieval is a baseline, so the product does not create an alert merely because a page exists.”
 
-### 0:28–0:55 — model retirement to reviewed patch
+Show the local usage meter, live/cached labels and official research results. Describe polling accurately as DriftCI-local polling with Context.dev scrape/search.
 
-Open the `gpt-4-0314` signal, source receipt and two source locations. Generate the patch.
+### 0:40–1:10 — exact blast radius and review
 
-> “Here, OpenAI’s documented legacy snapshot retirement affects support summaries and escalation drafts. DriftCI finds both locations and creates a reviewable replacement patch—not a vague recommendation. Every diff carries its evidence and the exact targeted checks performed.”
+Open the `gpt-4-0314` decision, its receipt and both source files. Click **Mark reviewed**.
 
-### 0:55–1:25 — CVE incident response
+> “The official retirement is mapped to support summaries and escalation drafts. Reviewers see the exact source evidence, migration recommendation and remaining validation. Changed pricing or release snapshots follow the same path with added and removed lines.”
 
-Open Vulnerabilities and the Next.js middleware incident.
+### 1:10–1:40 — vulnerability response
 
-> “The same engine works when a vulnerability drops. OSV supplies affected ranges and fixes; CISA adds known-exploited intelligence. DriftCI finds authorization middleware in the repository and marks reachability as likely, not magically proven. The team can acknowledge, contain, patch, verify and resolve one persistent incident.”
+Open the Next.js advisory, response checklist and Markdown export.
 
-### 1:25–1:45 — from alert to action
+> “OSV and CISA feed the same operational loop. Installed-version evidence is not presented as proof of exploitability. The team acknowledges, contains, patches, verifies and resolves one persistent incident with a portable response record.”
 
-Approve, export or open a PR.
+### 1:40–2:00 — close
 
-> “The result is a branch and reviewable pull request when GitHub is connected, or a real patch export when it is not. Application tests and model evaluations stay explicit, because DriftCI does not claim checks it never ran.”
+Return to Mission Control.
 
-### 1:45–2:00 — close
+> “DriftCI: the web, watched. The blast radius, known. Live Context.dev evidence becomes an inspectable decision, with explicit costs, coverage and uncertainty.”
 
-Return to Mission Control with resolved timeline.
+## Claims to avoid
 
-> “DriftCI: live dependency intelligence, from source change to reviewed fix. Dependabot for the web your code depends on.”
-
-## Demo claims to avoid
-
-- Do not claim CVE reachability is proof of exploitability.
-- Do not claim application CI or model evals ran; only DriftCI's listed targeted checks ran.
-- Do not label historical replay as a newly announced live event.
-- Do not claim a PR was opened when using patch-export mode.
-- Do not claim Context.dev was used for OSV/CISA; those are separate public intelligence sources integrated into the same response workflow.
+- Do not claim remote Context.dev monitor resources, IDs, schedules or webhooks exist.
+- Do not call local ledger counters an account-reconciled billing statement.
+- Do not label initial baselines or historical replay as newly observed live changes.
+- Do not claim CVE reachability is proof of exploitability or that application CI/model evaluations ran.
+- Do not claim Context.dev was used for OSV/CISA; those use separate public endpoints.
+- Do not imply exhaustive source or SBOM coverage for a partial large-repository index.

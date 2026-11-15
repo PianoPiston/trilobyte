@@ -11,7 +11,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import type { Bootstrap, CodeEvidence, Remediation, SourceReceipt, View } from '../types';
+import type { Bootstrap, CodeEvidence, SourceReceipt, View } from '../types';
 import { formatDate, modeKind, plural } from '../utils';
 import {
   Button,
@@ -27,16 +27,15 @@ interface EvidenceEntry {
   id: string;
   entityId: string;
   entityTitle: string;
-  entityType: 'signal' | 'incident' | 'remediation';
+  entityType: 'signal' | 'incident';
   severity?: string;
   receipt: SourceReceipt;
   files: CodeEvidence[];
   paths: string[];
 }
 
-export function Evidence({ data, remediations, onSelectSignal, onNavigate }: {
+export function Evidence({ data, onSelectSignal, onNavigate }: {
   data: Bootstrap;
-  remediations: Remediation[];
   onSelectSignal: (id: string) => void;
   onNavigate: (view: View) => void;
 }) {
@@ -69,19 +68,8 @@ export function Evidence({ data, remediations, onSelectSignal, onNavigate }: {
         paths: [],
       }));
     });
-    remediations.forEach((remediation) => {
-      remediation.source_receipts.forEach((receipt, index) => records.push({
-        id: `${remediation.id}:${index}`,
-        entityId: remediation.id,
-        entityTitle: remediation.title,
-        entityType: 'remediation',
-        receipt,
-        files: [],
-        paths: remediation.files.map((file) => file.path),
-      }));
-    });
     return records.sort((a, b) => new Date(b.receipt.retrieved_at).getTime() - new Date(a.receipt.retrieved_at).getTime());
-  }, [data, remediations]);
+  }, [data]);
 
   const modes = useMemo(() => [...new Set(entries.map((entry) => modeKind(entry.receipt.mode)))], [entries]);
   const filtered = entries.filter((entry) => {
@@ -128,7 +116,7 @@ export function Evidence({ data, remediations, onSelectSignal, onNavigate }: {
         <div className="evidence-toolbar">
           <div>
             <h2>Source receipts</h2>
-            <p>{plural(filtered.length, 'receipt link')} across decisions and remediations</p>
+            <p>{plural(filtered.length, 'receipt link')} across web decisions and vulnerability incidents</p>
           </div>
           <label className="search-field">
             <span className="sr-only">Search evidence</span>
@@ -155,7 +143,7 @@ export function Evidence({ data, remediations, onSelectSignal, onNavigate }: {
                 <SourceReceiptCard receipt={entry.receipt} />
                 <div className="evidence-relation">
                   <div className="relation-heading">
-                    <span>{entry.entityType === 'signal' ? 'Change decision' : entry.entityType === 'incident' ? 'Vulnerability incident' : 'Generated remediation'}</span>
+                    <span>{entry.entityType === 'signal' ? 'Change decision' : 'Vulnerability incident'}</span>
                     {entry.severity && <SeverityBadge severity={entry.severity} />}
                   </div>
                   <h3>{entry.entityTitle}</h3>

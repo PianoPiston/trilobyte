@@ -5,6 +5,7 @@ import asyncio
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlparse
 
@@ -43,11 +44,17 @@ class CachedWebClient:
                 await asyncio.sleep(wait)
             self._slots[host] = time.monotonic() + self.min_interval
 
-    async def request_json(self, method: str, url: str, cache_key: str, ttl: int, *, payload: dict | None = None, headers: dict[str, str] | None = None) -> WebResult:
+    async def request_json(self, method: str, url: str, cache_key: str, ttl: int, *, payload: dict | None = None, headers: dict[str, str] | None = None, allow_request: Callable[[], str | None] | None = None) -> WebResult:
         now = time.time()
         cached = self.db.cache_get(cache_key) if self.db.cache_fetched_at(cache_key) + ttl >= now else None
         if cached is not None:
             return WebResult(cached.get("body"), "cached", cached.get("retrieved_at"))
+        error = allow_request() if allow_request else None
+        if error:
+            stale = self.db.cache_get(cache_key)
+            if stale is not None:
+                return WebResult(stale.get("body"), "cached", stale.get("retrieved_at"), error)
+            return WebResult(error=error)
         error = "Request failed"
         for attempt in range(self.attempts):
             await self._pace(url)

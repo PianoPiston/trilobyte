@@ -1,66 +1,73 @@
-# DriftCI — 90-second live demo
+# DriftCI — two-minute live demo
 
 ## Opening (10 seconds)
 
-> “Dependabot sees package versions. It misses the web pages that say your model is disappearing, your API is changing, or a new CVE now affects code you shipped. DriftCI turns those live changes into an evidence-backed response.”
+> “Your code depends on web pages that package managers do not watch. DriftCI uses Context.dev to turn official docs, releases and pricing into persistent snapshots, then maps real changes to exact repository evidence.”
 
-Open **Mission Control** on the seeded `junction/orders-ai` workspace. Point out that risk counts and file evidence come from the repository inventory, not hardcoded cards.
+Open **Mission Control** on `junction/orders-ai`. Point out the Context.dev pulse, five official watches and source-to-code decision queue. The current public workspace uses live Context.dev receipts; optional historical examples are always labelled.
 
-## 1. Understand blast radius (20 seconds)
+## 1. Show the web watch (30 seconds)
 
-Select the **OpenAI `gpt-4-0314` retirement** signal.
+Open **Web Watch**.
 
-- Show the official OpenAI deprecation receipt, announcement and shutdown dates, and the `historical replay` badge.
-- Open both affected source locations: shared support-summary configuration and escalation-drafting call site.
-- Say: “This is a documented historical event being replayed for a reproducible demo. Scan now retrieves the current official page through Context.dev.”
+- Show the inferred OpenAI deprecations and pricing pages, OpenAI Python SDK, Next.js and React release watches.
+- Show live/cached states and the local daily Context.dev credit budget. Explain the six-hour shared cache, 6.2-second pacing, six-scrape limit and single scoped search.
+- Point to **Baselines, not false alarms**: the first successful retrieval establishes state; only a later content change creates an observation.
+- Scroll to **Scoped web research**. Open an official result and explain that off-host results are rejected.
+- Optionally show the custom HTTPS watch form. Do not claim DriftCI creates Context.dev monitor resources; polling and snapshots run in DriftCI.
 
-Generate the remediation. Show that DriftCI produces a real unified diff, lists targeted checks actually performed, and leaves application-owned model evaluations explicitly for CI.
+> “The source now has memory. When a later retrieval differs, the observation keeps the hashes, line counts and a bounded added/removed diff. No initial-page alert storm, no invisible polling cost.”
 
-## 2. Work a live security incident (30 seconds)
+## 2. Prove source-to-code impact (30 seconds)
 
-Open **Vulnerabilities** and select the Next.js middleware advisory.
+Open **Mission Control** and select the `gpt-4-0314` retirement signal.
 
-- Show the OSV/GitHub advisory receipt, affected range, fixed version and CVSS where supplied by upstream.
-- Explain that `likely reachable` comes from `middleware.ts` containing route authorization; it is not represented as exploit proof.
-- Show the distinction between installed, usage-confirmed, and pattern-likely evidence.
-- Advance the incident checklist from acknowledge through containment and patch preparation. The timeline records these actions.
-- Click **Export IR record** to download a Markdown handoff containing impact, evidence uncertainty, checklist timestamps and primary advisories.
+- Show the official OpenAI receipt and live/cached retrieval mode.
+- Open both exact locations: shared support-summary configuration and escalation drafting.
+- Show the migration recommendation and distinguish exact configuration evidence from runtime invocation.
+- Click **Mark reviewed**. The backend records the review and updates the queue.
 
-Use **Scan now** if network access is available. Live OSV/CISA results can reveal additional advisories; DriftCI keeps a failing source's last-known evidence rather than silently deleting it.
+> “This is an actual official-page retrieval mapped to real code, not a hardcoded warning. The same observation path handles changed model pricing and installed-package release pages.”
 
-## 3. Turn evidence into a reviewable fix (20 seconds)
+## 3. Work the security incident (30 seconds)
 
-From the vulnerability signal, generate a patch.
+Open **Vulnerabilities** and the Next.js middleware advisory.
 
-- Inspect the version-only `package.json` diff and fixed-version evidence.
-- Approve it, then export the patch. Without a GitHub token, the product says it is exporting a patch rather than pretending a PR was opened.
-- If GitHub integration is configured, show the draft PR body: exact source citations, files changed, checks performed, and remaining human validation.
+- Show the OSV/GitHub advisory, affected installed range and fixed version.
+- Explain that middleware presence makes reachability **likely**, not proven exploitable.
+- Advance the ordered response checklist and show the timestamped timeline.
+- Click **Export IR record** to download the Markdown handoff.
+- Open **CVE history** to show that resolved response evidence remains available.
 
-## Close (10 seconds)
+The example intentionally pins an old Next.js release, so live OSV can return many additional real advisories. They are retained rather than suppressed.
 
-> “DriftCI closes the gap between the live web and the code that depends on it: one change, a precise blast radius, a reviewable fix, and an incident record. Same workflow for model retirement, API drift, and CVE response.”
+## Close (20 seconds)
+
+Return to **Web Watch** and **Change Inbox**.
+
+> “DriftCI closes the loop from live web evidence to code impact and accountable review: Context.dev scrape and search, persistent observed changes, exact repository locations, and a real CVE response record. Its rates and uncertainty are visible, and the demo never turns an initial baseline into a fake live alert.”
+
+## Reliable recovery
+
+- **Refresh web** uses cached responses for six hours; the browser displays live versus cached status.
+- **Repository and demo controls → Restore example workspace** returns to `junction/orders-ai`.
+- **Replay historical incident** explicitly replays the March 2026 shutdown. It is not a new live announcement.
+- A Context.dev/OSV/CISA outage preserves last-known evidence and exposes a source-specific warning.
+- Incidents, source receipts and Markdown export work without GitHub credentials. No repository code is executed.
 
 ## Validated release
 
-- FastAPI serves the built React console at https://driftci.ajc.contexio.fi through a public HTTPS proxy.
-- Backend unit/integration tests run without live-network dependencies.
-- `scripts/browser-smoke.cjs` has passed against both localhost and the public route with zero JavaScript errors: source drawer, two-file model patch, approval-gated download, CVE checklist/report, history and 390px mobile layout.
-- A real first scan completed in 7.4 seconds with 2 Context.dev retrievals and live OSV/CISA results; details are in `EVIDENCE.md`.
-
-## Demo recovery
-
-- **Reset demo** restores the deterministic example workspace.
-- **Replay historical incident** never masquerades as a new current event.
-- **Patch export** works without credentials.
-- Context.dev, OSV or CISA outages preserve cached evidence and surface source-specific errors.
-- If time is short, prioritize the model-source-to-diff flow, then the CVE incident checklist.
+- **35 backend tests** pass without live network dependencies.
+- Production TypeScript/Vite build passes.
+- Real Chromium checks passed with zero JavaScript errors for Mission Control, review transitions, five-watch Web Watch and research results, change search, CVE checklist/report/history, 120-file source bounds, and 390px responsive layouts.
+- A bounded live refresh completed in **34.4 seconds**: five official scrapes plus one scoped search. The local ledger recorded six queries and seven credits for that refresh. Details are in `EVIDENCE.md`.
 
 ## Questions judges may ask
 
-**Why not Dependabot/Renovate?** They primarily react to package versions. DriftCI watches unstructured official documentation and operational model changes, maps them to source usage, and works security incidents with evidence. Package upgrade generation is intentionally one remediation type.
+**Is this a Context.dev monitor integration?** It uses the Context.dev Web API for scrape and search. DriftCI implements local polling, baselines, diff observations and budgets. It does not claim remote monitor IDs or webhooks.
 
-**Is a CVE in a dependency proof of exploitability?** No. DriftCI labels installed versus exact-use versus heuristic reachability, and directs teams to deployment-specific testing.
+**Why not Dependabot/Renovate?** They react mainly to package versions. DriftCI watches unstructured operational pages, compares their content, maps changes to exact model/dependency evidence, and keeps vulnerability response state.
 
-**Did DriftCI run my test suite?** No. It reports the targeted static checks it actually ran. The diff tells reviewers which application CI checks remain necessary.
+**Does a dependency CVE prove exploitability?** No. The UI distinguishes installed-version matching, exact configuration and heuristic reachability; deployment verification remains necessary.
 
-**Can it merge automatically?** No. Human approval is required, and GitHub integration opens a separate branch and pull request only.
+**How are costs bounded?** Six-hour caches, six scrapes and one search per refresh, 6.2-second pacing, a shared scan lock/cooldown and an 80-credit daily ceiling. The counters shown are local records, not an account-side billing statement.

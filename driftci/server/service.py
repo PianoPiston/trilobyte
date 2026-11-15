@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 import httpx
 
+from .changes import capture_change, change_kind, change_severity
 from .config import Settings
-from .contextdev import DOCUMENTS, ContextDev, DocumentSpec, parse_deprecations
+from .contextdev import ContextDev, DocumentSpec, custom_dict, custom_spec, documents_for, parse_deprecations, research_query, validate_watch_url
 from .db import Database
 from .github import GitHubError, GitHubPullRequests
 from .intel import VulnerabilityIntel, advisory_receipts, cve_id, kev_entries, kev_receipt, score_and_severity
@@ -20,7 +22,12 @@ from .versioning import fixed_version
 from .web import CachedWebClient
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
-ACTIVE_STATES = {"needs_action", "acknowledged", "fix_ready"}
+ACTIVE_STATES = {"needs_action", "acknowledged", "fix_ready", "monitoring"}
+
+
+def public_source(source: dict) -> dict:
+    """Keep internal markdown snapshots out of API responses."""
+    return {key: value for key, value in source.items() if not key.startswith("_")}
 
 
 def _date(value: str | None) -> str | None:
@@ -52,7 +59,7 @@ class DriftService:
         self.db = db
         self.settings = settings
         self.http = http
-        self.context = ContextDev(db, CachedWebClient(db, http, settings.context_min_interval), settings.contextdev_api_key, settings.context_cache_ttl)
+        self.context = ContextDev(db, CachedWebClient(db, http, settings.context_min_interval), settings.contextdev_api_key, settings.context_cache_ttl, settings.context_daily_credit_limit)
         self.intel = VulnerabilityIntel(db, CachedWebClient(db, http, .2), settings.osv_cache_ttl, settings.kev_cache_ttl)
 
     def health(self) -> dict:
@@ -65,9 +72,9 @@ class DriftService:
             "replay": sum(source.get("status") == "replay" for source in sources),
         }
         return {
-            "ok": True, "version": "1.0.0",
-            "context_dev": {"configured": bool(self.settings.contextdev_api_key), "mode": "live" if self.settings.contextdev_api_key and not self.settings.offline else "offline" if self.settings.offline else "unconfigured"},
-            "github": {"configured": bool(self.settings.github_token), "mode": "pull requests" if self.settings.github_token else "patch export"},
+            "ok": True, "version": "1.1.0",
+            "context_dev": {"configured": bool(self.settings.contextdev_api_key), "mode": "live" if self.settings.contextdev_api_key and not self.settings.offline else "offline" if self.settings.offline else "unconfigured", "usage": self.context.usage()},
+            "github": {"configured": bool(self.settings.github_token), "mode": "pull requests available" if self.settings.github_token else "read-only"},
             "last_scan_at": self.db.get_meta("last_scan_at"), "source_counts": counts,
         }
 
@@ -118,6 +125,9 @@ class DriftService:
                 risk_score += weights.get(signal["severity"], 0) - (18 if signal["kind"] == "deprecation" and signal["severity"] == "critical" else 0)
                 risk_score += 10 if signal.get("kev") else 0
         receipts = {f"{r.get('publisher')}|{r.get('url')}|{r.get('retrieved_at')}|{r.get('mode')}" for signal in signals for r in signal.get("source_receipts", [])}
+        sources = self.db.list_sources()
+        changes = sorted((dict(change, publisher=source.get("publisher"), source_title=source.get("title"), signal_id=change.get("signal_id")) for source in sources for change in source.get("observations", [])), key=lambda item: item["observed_at"], reverse=True)
+        search_source = self.db.get_source("src-context-search") or {}
         return {
             "workspace": workspace,
             "summary": {
@@ -127,12 +137,15 @@ class DriftService:
                 "affected_dependencies": len(affected), "remediations_ready": sum(item["status"] in {"ready_for_review", "approved"} for item in remediations),
                 "production_models": len(production_models(files)), "resolved_this_month": resolved_this_month,
                 "mean_response_hours": round(sum(durations) / len(durations), 1) if durations else 0.0,
+                "watched_sources": sum(bool(source.get("category")) for source in sources),
+                "observed_changes": len(changes),
             },
             "signals": signals, "dependencies": dependencies,
-            "activity": self.db.list_activity(30), "sources": self.db.list_sources(),
+            "activity": self.db.list_activity(30), "sources": [public_source(source) for source in sources],
             "incidents": active_incidents, "history": history,
-            "remediations": remediations,
-            "metrics": {"source_receipts": len(receipts), "files_indexed": len(files), "dependencies_indexed": len(dependencies), "context_queries": self.db.get_meta("context_queries", 0)},
+            "remediations": remediations, "changes": changes, "discoveries": search_source.get("results", []),
+            "research": {"query": search_source.get("query"), "retrieved_at": search_source.get("last_checked_at"), "mode": search_source.get("mode")} if search_source else None,
+            "metrics": {"source_receipts": len(receipts), "files_indexed": len(files), "dependencies_indexed": len(dependencies), "context_queries": self.db.get_meta("context_queries", 0), "context_credits": self.db.get_meta("context_credits", 0)},
         }
 
     def incident_payload(self) -> dict:
@@ -280,6 +293,49 @@ class DriftService:
         self.db.add_activity("pull_request", "Pull request opened", str(result["pr_url"]))
         return remediation
 
+    def update_signal_state(self, ident: str, state: str) -> dict:
+        signal = self.db.get_signal(ident)
+        if not signal:
+            raise LookupError("Signal not found")
+        if state not in {"acknowledged", "resolved", "monitoring", "needs_action"}:
+            raise RemediationError("Unsupported signal state")
+        if signal["kind"] == "vulnerability" and state == "resolved":
+            raise RemediationError("Resolve vulnerabilities through the incident-response checklist")
+        signal["state"] = state
+        signal["reviewed_at"] = utcnow() if state in {"acknowledged", "resolved"} else None
+        self.db.save_signal(signal)
+        self.db.add_activity("review", f"Signal marked {state.replace('_', ' ')}", signal["title"])
+        return signal
+
+    def _custom_specs(self) -> list[DocumentSpec]:
+        return [custom_spec(item) for item in self.db.get_meta("custom_watches", [])]
+
+    async def add_watch(self, url: str, title: str) -> dict:
+        spec = validate_watch_url(url, title)
+        watches = self.db.get_meta("custom_watches", [])
+        if not any(item["key"] == spec.key for item in watches):
+            if len(watches) >= 12:
+                raise RemediationError("The prototype supports up to 12 custom web watches")
+            watches.append(custom_dict(spec))
+            self.db.set_meta("custom_watches", watches)
+        self.db.add_activity("watch", "Custom web watch added", f"{spec.title} · {spec.url}")
+        await self._scan_documents(self.db.files())
+        self.db.set_meta("last_scan_at", utcnow())
+        return self.bootstrap()
+
+    def remove_watch(self, key: str) -> dict:
+        watches = self.db.get_meta("custom_watches", [])
+        spec = next((custom_spec(item) for item in watches if item["key"] == key), None)
+        if not spec:
+            raise LookupError("Custom watch not found")
+        self.db.set_meta("custom_watches", [item for item in watches if item["key"] != key])
+        self.db.delete_source(f"src-{spec.key}")
+        for signal in self.db.list_signals():
+            if signal.get("watch_id") == f"src-{spec.key}":
+                self.db.delete_signal(signal["id"])
+        self.db.add_activity("watch", "Custom web watch removed", spec.title)
+        return self.bootstrap()
+
     async def connect(self, url: str) -> dict:
         limits = SourceLimits(self.settings.github_file_limit, self.settings.github_byte_limit, self.settings.github_file_byte_limit)
         workspace, files = await read_public(self.http, url, self.settings.github_token, limits)
@@ -302,53 +358,163 @@ class DriftService:
         self.db.set_meta("last_scan_at", utcnow())
         return self.bootstrap()
 
+    def _observation_signal(self, spec: DocumentSpec, observation: dict, files: dict[str, str], locations_by_model: dict[str, list[dict]]) -> dict | None:
+        if spec.category == "deprecations":
+            return None  # Structured lifecycle rows produce more precise signals below.
+        changed_text = " ".join(observation["added"] + observation["removed"]).lower()
+        evidence: list[dict] = []
+        assets: list[str] = []
+        terms: list[str] = []
+        if spec.package:
+            for item in inventory(files):
+                if item["name"] != spec.package:
+                    continue
+                dependency = Dependency(**{key: item[key] for key in ("name", "ecosystem", "version", "declared", "kind", "manifest", "exact")})
+                evidence.extend(dependency_evidence(files, dependency))
+            assets.append(spec.package)
+            terms.append(spec.package)
+        else:
+            for model, locations in locations_by_model.items():
+                if model in changed_text:
+                    evidence.extend(dict(item) for item in locations)
+                    assets.append(model)
+                    terms.append(model)
+        if not evidence and not spec.custom:
+            return None
+        evidence = evidence[:12]
+        ident = stable_id("sig-web", observation["id"])
+        old = self.db.get_signal(ident) or {}
+        observation["signal_id"] = ident
+        observation["matched_terms"] = terms
+        receipt = {
+            "publisher": spec.provider, "title": spec.title, "url": spec.url,
+            "retrieved_at": observation["observed_at"], "mode": observation["mode"],
+            "quote": observation["added"][0] if observation["added"] else observation["removed"][0],
+        }
+        signal = {
+            "id": ident, "kind": change_kind(observation, spec), "severity": change_severity(observation, spec),
+            "state": old.get("state", "needs_action"), "title": observation["title"],
+            "summary": f"Context.dev observed {observation['added_lines']} added and {observation['removed_lines']} removed lines against the previous snapshot. {len(evidence)} repository locations are attached for review.",
+            "provider": spec.provider, "affected_assets": assets or [spec.title],
+            "deadline": None, "announced_at": None, "cve": None, "cvss": None, "kev": False,
+            "fixed_version": None, "replacement": None, "model": None,
+            "reachability": "confirmed" if evidence else "unknown",
+            "reachability_reason": "The watch was derived from this repository; the diff still requires human review.",
+            "recommendation": "Compare the added and removed lines, open the primary source, and validate any repository impact before changing production.",
+            "evidence": evidence, "source_receipts": [receipt], "remediation_id": None,
+            "created_at": old.get("created_at") or observation["observed_at"],
+            "watch_id": observation["source_id"], "change": observation,
+        }
+        self.db.save_signal(signal)
+        return signal
+
+    async def _scan_research(self, files: dict[str, str], specs: list[DocumentSpec]) -> None:
+        query = research_query(files, specs)
+        if not query:
+            return
+        result = await self.context.search(query)
+        old = self.db.get_source("src-context-search") or {}
+        source = {
+            **old, "id": "src-context-search", "publisher": "Context.dev", "title": "Scoped official-web research",
+            "url": "https://context.dev/", "query": query, "watch": False,
+        }
+        if result.error:
+            source.update({"status": "unconfigured" if not self.settings.contextdev_api_key else "error", "error": safe_excerpt(result.error, 240)})
+            self.db.save_source(source)
+            return
+        rows = []
+        terms = [model.lower() for model in production_models(files)] + [item["name"].lower() for item in inventory(files) if item["kind"] in {"framework", "ai_sdk"}]
+        for item in result.data["results"]:
+            if not isinstance(item, dict):
+                continue
+            url = item.get("url")
+            if not isinstance(url, str) or not url.startswith("https://"):
+                continue
+            highlights = item.get("highlights") or []
+            if not isinstance(highlights, list):
+                highlights = []
+            summary = safe_excerpt(" ".join(str(value) for value in highlights) or item.get("text") or item.get("summary"), 900)
+            title = safe_excerpt(item.get("title") or url, 180)
+            official_host = query.split("site:", 1)[1].split()[0].split("/", 1)[0]
+            if urlparse(url).hostname != official_host:
+                continue
+            haystack = f"{title} {summary}".lower()
+            rows.append({
+                "id": stable_id("discovery", url), "title": title, "url": url, "summary": summary,
+                "published_at": item.get("publishedDate") if isinstance(item.get("publishedDate"), str) else None,
+                "retrieved_at": result.retrieved_at, "mode": result.mode,
+                "matched_terms": [term for term in terms if term and term in haystack][:6],
+            })
+        source.update({
+            "status": result.mode, "last_checked_at": result.retrieved_at, "event_count": len(rows),
+            "mode": result.mode, "error": None, "results": rows,
+        })
+        self.db.save_source(source)
+
     async def _scan_documents(self, files: dict[str, str]) -> int:
         matched = 0
+        specs = documents_for(files, self._custom_specs(), self.settings.context_max_sources)
         locations_by_model: dict[str, list[dict]] = {}
         for item in model_evidence(files):  # Parse the selected source tree once, not once per lifecycle event.
             locations_by_model.setdefault(item["model"].lower(), []).append({key: value for key, value in item.items() if key != "model"})
-        for spec in DOCUMENTS:
+        for spec in specs:
             result = await self.context.scrape(spec)
             if result.error:
                 source = self.context.error_source(spec, result.error)
                 if not self.settings.contextdev_api_key:
                     source["status"] = "unconfigured"
+                source["watch"] = True
                 self.db.save_source(source)
                 continue
-            events = parse_deprecations(result.data, spec.provider)
-            event_count = 0
-            for event in events:
-                evidence = [dict(item) for item in locations_by_model.get(event["model"].lower(), [])]
-                if not evidence:
-                    continue
-                event_count += 1
-                model = event["model"]
-                special = spec.provider == "OpenAI" and model.lower() == "gpt-4-0314"
-                ident = "sig-model-gpt4-0314" if special else stable_id("sig-model", spec.provider, model.lower())
-                existing = self.db.get_signal(ident) or {}
-                replacement = "gpt-4.1" if special else event.get("replacement")
-                # A provider may publish an initial estimate followed by a final shutdown.
-                # Use the latest explicit dates, not lexicographic month-name ordering.
-                deadline = _latest_date(event.get("shutdown_dates") or [])
-                announced = _latest_date(event.get("announcement_dates") or [])
-                receipt = {"publisher": spec.provider, "title": spec.title, "url": spec.url, "retrieved_at": result.retrieved_at, "mode": result.mode, "quote": event["quote"]}
-                past = bool(deadline and parse_iso(deadline) <= datetime.now(timezone.utc))
-                state = existing.get("state") if existing.get("state") in {"acknowledged", "fix_ready"} else "needs_action"
-                signal = {
-                    "id": ident, "kind": "deprecation", "severity": "critical" if past else "high", "state": state,
-                    "title": "A retired model is still configured" if past else "A configured model is approaching retirement",
-                    "summary": f"{model} {'was shut down' if past else 'is listed for retirement'}{' on ' + deadline[:10] if deadline else ''}. {len(evidence)} code/config locations select it.",
-                    "provider": spec.provider, "affected_assets": ["Support summaries", "Escalation drafts"] if special else sorted({item["file"] for item in evidence}),
-                    "deadline": deadline, "announced_at": announced, "cve": None, "cvss": None, "kev": False, "fixed_version": None,
-                    "replacement": replacement, "model": model, "reachability": "confirmed",
-                    "reachability_reason": "Exact source identifiers confirm configuration, not runtime invocation.",
-                    "recommendation": f"Replace it with {replacement} and run existing evaluations before deployment." if replacement else "Select an official replacement from the cited lifecycle table and run existing evaluations before deployment.",
-                    "evidence": evidence, "source_receipts": [receipt], "remediation_id": existing.get("remediation_id"),
-                    "created_at": existing.get("created_at") or announced or utcnow(),
-                }
-                self.db.save_signal(signal)
-            self.db.save_source({"id": f"src-{spec.key}", "publisher": spec.provider, "title": spec.title, "url": spec.url, "status": result.mode, "last_checked_at": result.retrieved_at, "event_count": event_count, "mode": result.mode, "error": None})
-            matched += event_count
+
+            old = self.db.get_source(f"src-{spec.key}") or {}
+            observation, snapshot = capture_change(spec, result.data, old, result.retrieved_at or utcnow(), result.mode)
+            observations = list(old.get("observations") or [])[:12]
+            lifecycle_matches = 0
+            if observation:
+                signal = self._observation_signal(spec, observation, files, locations_by_model)
+                observations.insert(0, observation)
+                if signal:
+                    matched += 1
+                self.db.add_activity("web_change", observation["title"], f"{observation['added_lines']} additions · {observation['removed_lines']} removals · matched {len(observation.get('matched_terms', []))} repository terms")
+
+            observations = observations[:12]
+            if spec.category == "deprecations":
+                for event in parse_deprecations(result.data, spec.provider):
+                    evidence = [dict(item) for item in locations_by_model.get(event["model"].lower(), [])]
+                    if not evidence:
+                        continue
+                    lifecycle_matches += 1
+                    model = event["model"]
+                    special = spec.provider == "OpenAI" and model.lower() == "gpt-4-0314"
+                    ident = "sig-model-gpt4-0314" if special else stable_id("sig-model", spec.provider, model.lower())
+                    existing = self.db.get_signal(ident) or {}
+                    replacement = "gpt-4.1" if special else event.get("replacement")
+                    deadline = _latest_date(event.get("shutdown_dates") or [])
+                    announced = _latest_date(event.get("announcement_dates") or [])
+                    receipt = {"publisher": spec.provider, "title": spec.title, "url": spec.url, "retrieved_at": result.retrieved_at, "mode": result.mode, "quote": event["quote"]}
+                    past = bool(deadline and parse_iso(deadline) <= datetime.now(timezone.utc))
+                    signal = {
+                        "id": ident, "kind": "deprecation", "severity": "critical" if past else "high", "state": existing.get("state", "needs_action"),
+                        "title": "A retired model is still configured" if past else "A configured model is approaching retirement",
+                        "summary": f"{model} {'was shut down' if past else 'is listed for retirement'}{' on ' + deadline[:10] if deadline else ''}. {len(evidence)} code/config locations select it.",
+                        "provider": spec.provider, "affected_assets": ["Support summaries", "Escalation drafts"] if special else sorted({item["file"] for item in evidence}),
+                        "deadline": deadline, "announced_at": announced, "cve": None, "cvss": None, "kev": False, "fixed_version": None,
+                        "replacement": replacement, "model": model, "reachability": "confirmed",
+                        "reachability_reason": "Exact source identifiers confirm configuration, not runtime invocation.",
+                        "recommendation": f"Replace it with {replacement} and run existing evaluations before deployment." if replacement else "Select an official replacement from the cited lifecycle table and run existing evaluations before deployment.",
+                        "evidence": evidence, "source_receipts": [receipt], "remediation_id": existing.get("remediation_id"),
+                        "created_at": existing.get("created_at") or announced or utcnow(), "watch_id": f"src-{spec.key}",
+                    }
+                    self.db.save_signal(signal)
+            self.db.save_source({
+                **old, **snapshot, "id": f"src-{spec.key}", "publisher": spec.provider, "title": spec.title, "url": spec.url,
+                "status": result.mode, "last_checked_at": result.retrieved_at, "event_count": lifecycle_matches + len(observations),
+                "matched_events": lifecycle_matches, "observations": observations, "mode": result.mode, "error": None,
+                "category": spec.category, "package": spec.package, "custom": spec.custom, "watch": True,
+            })
+            matched += lifecycle_matches
+        await self._scan_research(files, specs)
         return matched
 
     async def _scan_vulnerabilities(self, files: dict[str, str], dependencies: list[Dependency]) -> int:

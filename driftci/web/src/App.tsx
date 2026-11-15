@@ -5,6 +5,7 @@ import {
   ChevronDown,
   FlaskConical,
   Github,
+  Globe2,
   History,
   LayoutDashboard,
   Menu,
@@ -23,7 +24,6 @@ import type {
   Bootstrap,
   Health,
   Incident,
-  Remediation,
   Signal,
   View,
 } from './types';
@@ -32,7 +32,7 @@ import { ChangeRadar } from './pages/ChangeRadar';
 import { Evidence } from './pages/Evidence';
 import { MissionControl } from './pages/MissionControl';
 import { Vulnerabilities } from './pages/Vulnerabilities';
-import { RemediationDialog } from './components/RemediationDialog';
+import { WebWatch } from './pages/WebWatch';
 import { RepositoryDrawer } from './components/RepositoryDrawer';
 import { SignalDrawer } from './components/SignalDrawer';
 import {
@@ -47,13 +47,10 @@ import {
   type ToastData,
 } from './components/ui';
 
-function storedRemediations(result: Bootstrap): Record<string, Remediation> {
-  return Object.fromEntries((result.remediations ?? []).map((item) => [item.id, item]));
-}
-
 const navigation: Array<{ id: View; label: string; icon: typeof LayoutDashboard }> = [
   { id: 'overview', label: 'Mission Control', icon: LayoutDashboard },
-  { id: 'radar', label: 'Change Radar', icon: Radar },
+  { id: 'watch', label: 'Web Watch', icon: Globe2 },
+  { id: 'radar', label: 'Change Inbox', icon: Radar },
   { id: 'vulnerabilities', label: 'Vulnerabilities', icon: ShieldAlert },
   { id: 'evidence', label: 'Evidence', icon: ReceiptText },
 ];
@@ -78,8 +75,6 @@ export default function App() {
   const [mobileNavigation, setMobileNavigation] = useState(false);
   const [repositoryOpen, setRepositoryOpen] = useState(false);
   const [selectedSignalId, setSelectedSignalId] = useState('');
-  const [reviewRemediation, setReviewRemediation] = useState<Remediation | null>(null);
-  const [remediations, setRemediations] = useState<Record<string, Remediation>>({});
   const [replayConfirmation, setReplayConfirmation] = useState(false);
   const [toast, setToast] = useState<ToastData | null>(null);
 
@@ -103,7 +98,6 @@ export default function App() {
       const [bootstrapResult, healthResult] = await Promise.allSettled([api.bootstrap(), api.health()]);
       if (bootstrapResult.status === 'rejected') throw bootstrapResult.reason;
       setData(bootstrapResult.value);
-      setRemediations(storedRemediations(bootstrapResult.value));
       if (healthResult.status === 'fulfilled') setHealth(healthResult.value);
     } catch (requestError) {
       setInitialError(errorText(requestError));
@@ -130,8 +124,6 @@ export default function App() {
     try {
       const result = await action();
       setData(result);
-      setRemediations(storedRemediations(result));
-      setReviewRemediation(null);
       setSelectedSignalId('');
       notify(successMessage, 'success');
       void refreshHealth();
@@ -150,8 +142,6 @@ export default function App() {
     try {
       const result = await api.connectRepository(url);
       setData(result);
-      setRemediations(storedRemediations(result));
-      setReviewRemediation(null);
       setRepositoryOpen(false);
       setSelectedSignalId('');
       notify(`Connected ${result.workspace.repository} on ${result.workspace.branch}.`, 'success');
@@ -162,24 +152,6 @@ export default function App() {
     } finally {
       setBusy('');
     }
-  };
-
-  const remediate = async (signalId: string) => {
-    const existing = Object.values(remediations).find((item) => item.signal_id === signalId);
-    if (existing) {
-      setReviewRemediation(existing);
-      return existing;
-    }
-    const result = await api.createRemediation(signalId);
-    setRemediations((current) => ({ ...current, [result.id]: result }));
-    setData((current) => current ? {
-      ...current,
-      signals: current.signals.map((signal) => signal.id === signalId
-        ? { ...signal, state: 'fix_ready', remediation_id: result.id }
-        : signal),
-    } : current);
-    setReviewRemediation(result);
-    return result;
   };
 
   const updateSignal = (updated: Signal) => {
@@ -202,13 +174,35 @@ export default function App() {
     // Incident transitions also change signal state and aggregate metrics.
     void api.bootstrap().then((result) => {
       setData(result);
-      setRemediations(storedRemediations(result));
     }).catch(() => { /* The incident response already updated successfully. */ });
   };
 
-  const updateRemediation = (updated: Remediation) => {
-    setRemediations((current) => ({ ...current, [updated.id]: updated }));
-    setReviewRemediation((current) => current?.id === updated.id ? updated : current);
+  const addWatch = async (url: string, title: string) => {
+    setBusy('add-watch');
+    try {
+      const result = await api.addWatch(url, title);
+      setData(result);
+      notify('Web watch added. A baseline is established on first retrieval.', 'success');
+      void refreshHealth();
+    } catch (requestError) {
+      notify(errorText(requestError), 'error');
+      throw requestError;
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const removeWatch = async (key: string) => {
+    setBusy('remove-watch');
+    try {
+      setData(await api.removeWatch(key));
+      notify('Custom web watch removed.', 'success');
+    } catch (requestError) {
+      notify(errorText(requestError), 'error');
+      throw requestError;
+    } finally {
+      setBusy('');
+    }
   };
 
   if (initialLoading) {
@@ -236,9 +230,7 @@ export default function App() {
     );
   }
 
-  const remediationList = Object.values(remediations);
   const selectedInitialSignal = data.signals.find((signal) => signal.id === selectedSignalId);
-  const activeSourceCounts = Object.entries(health?.source_counts ?? {}).filter(([, count]) => count > 0);
 
   return (
     <div className="app-shell">
@@ -265,7 +257,8 @@ export default function App() {
           <span className="navigation-label">Operations</span>
           {navigation.map((item) => {
             const Icon = item.icon;
-            const count = item.id === 'radar' ? data.summary.active_changes
+            const count = item.id === 'watch' ? data.summary.observed_changes
+              : item.id === 'radar' ? data.summary.active_changes
               : item.id === 'vulnerabilities' ? data.incidents.length
                 : item.id === 'evidence' ? data.metrics.source_receipts : null;
             return (
@@ -296,20 +289,18 @@ export default function App() {
             <button className="mobile-brand" onClick={() => navigate('overview')} aria-label="DriftCI mission control"><Brand /></button>
             <div className="source-mode-summary">
               {health && <ModeBadge mode={health.context_dev.configured ? health.context_dev.mode : 'not_configured'} />}
-              {activeSourceCounts.map(([mode, count]) => <span className="source-count" key={mode}><ModeBadge mode={mode} />{count}</span>)}
               {!health && <ModeBadge mode="health_unavailable" />}
             </div>
           </div>
           <div className="command-actions">
             <span className="last-scan">Last scan <strong>{relativeTime(health?.last_scan_at ?? null)}</strong></span>
             <IconButton icon={Settings2} label="Repository and demo controls" onClick={() => setRepositoryOpen(true)} />
-            <Button icon={History} onClick={() => setReplayConfirmation(true)} className="replay-button">Replay 2026 incident</Button>
             <Button
               variant="primary"
               icon={ScanSearch}
               loading={busy === 'scan'}
-              onClick={() => void runWorkspaceAction('scan', api.scan, 'Scan complete. Workspace data and source statuses refreshed.')}
-            >Scan now</Button>
+              onClick={() => void runWorkspaceAction('scan', api.scan, 'Live web and vulnerability intelligence refreshed.')}
+            >Refresh web</Button>
           </div>
         </header>
 
@@ -317,32 +308,17 @@ export default function App() {
           <InlineNotice tone="error" className="stale-data-banner" role="alert">
             <BellRing aria-hidden="true" />
             <div><strong>Refresh failed. Showing the last successful workspace data.</strong><span>{refreshError}</span></div>
-            <Button size="small" icon={RefreshCw} loading={busy === 'scan'} onClick={() => void runWorkspaceAction('scan', api.scan, 'Scan complete. Workspace data and source statuses refreshed.')}>Retry scan</Button>
+            <Button size="small" icon={RefreshCw} loading={busy === 'scan'} onClick={() => void runWorkspaceAction('scan', api.scan, 'Live web and vulnerability intelligence refreshed.')}>Retry refresh</Button>
             <IconButton icon={X} label="Dismiss refresh error" onClick={() => setRefreshError('')} />
           </InlineNotice>
         )}
 
         <main id="main-content" className="main-content" tabIndex={-1}>
-          {view === 'overview' && <MissionControl data={data} onNavigate={navigate} onSelectSignal={setSelectedSignalId} />}
-          {view === 'radar' && (
-            <ChangeRadar
-              initialSignals={data.signals}
-              remediations={remediationList}
-              onSelectSignal={setSelectedSignalId}
-              onRemediate={remediate}
-              onReview={setReviewRemediation}
-            />
-          )}
-          {view === 'vulnerabilities' && (
-            <Vulnerabilities
-              data={data}
-              remediations={remediationList}
-              onIncidentUpdated={updateIncident}
-              onRemediate={remediate}
-              onReview={setReviewRemediation}
-            />
-          )}
-          {view === 'evidence' && <Evidence data={data} remediations={remediationList} onSelectSignal={setSelectedSignalId} onNavigate={navigate} />}
+          {view === 'overview' && <MissionControl data={data} health={health} onNavigate={navigate} onSelectSignal={setSelectedSignalId} />}
+          {view === 'watch' && <WebWatch data={data} health={health} busy={busy} onAddWatch={addWatch} onRemoveWatch={removeWatch} onSelectSignal={setSelectedSignalId} />}
+          {view === 'radar' && <ChangeRadar initialSignals={data.signals} onSelectSignal={setSelectedSignalId} />}
+          {view === 'vulnerabilities' && <Vulnerabilities data={data} onIncidentUpdated={updateIncident} />}
+          {view === 'evidence' && <Evidence data={data} onSelectSignal={setSelectedSignalId} onNavigate={navigate} />}
         </main>
       </div>
 
@@ -350,16 +326,9 @@ export default function App() {
         <SignalDrawer
           signalId={selectedSignalId}
           initialSignal={selectedInitialSignal}
-          remediations={remediationList}
           onClose={() => setSelectedSignalId('')}
-          onRemediate={remediate}
-          onReview={setReviewRemediation}
           onSignalUpdated={updateSignal}
         />
-      )}
-
-      {reviewRemediation && (
-        <RemediationDialog remediation={reviewRemediation} onChange={updateRemediation} onClose={() => setReviewRemediation(null)} notify={notify} />
       )}
 
       {repositoryOpen && (

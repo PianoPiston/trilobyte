@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 from .config import Settings
+from .contextdev import validate_watch_url
 from .db import Database
 from .github import GitHubError
 from .remediation import RemediationError
@@ -29,6 +30,15 @@ class RepositoryRequest(BaseModel):
 
 class ActionRequest(BaseModel):
     status: Literal["done", "pending"]
+
+
+class WatchRequest(BaseModel):
+    url: str = Field(min_length=8, max_length=1000)
+    title: str = Field(default="", max_length=80)
+
+
+class SignalStateRequest(BaseModel):
+    state: Literal["acknowledged", "resolved", "monitoring", "needs_action"]
 
 
 def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
@@ -66,7 +76,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
                         await watcher
                 db.close()
 
-    app = FastAPI(title="DriftCI", version="1.0.0", lifespan=lifespan)
+    app = FastAPI(title="DriftCI", version="1.1.0", lifespan=lifespan)
 
     async def gated_scan(operation, force: bool = False):
         """Serialize network refreshes and rate-limit public callers without leaking credentials."""
@@ -102,7 +112,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     @app.get("/api/health")
     def health(request: Request):
         payload = service(request).health()
-        payload["watcher"] = {"enabled": config.watch_interval_seconds > 0 and not config.offline, "interval_seconds": config.watch_interval_seconds, "scan_cooldown_seconds": config.scan_cooldown_seconds}
+        payload["watcher"] = {"enabled": config.watch_interval_seconds > 0 and not config.offline, "interval_seconds": config.watch_interval_seconds, "scan_cooldown_seconds": config.scan_cooldown_seconds, "implementation": "local polling with independent Context.dev cache and credit budget"}
         return payload
 
     @app.get("/api/bootstrap")
@@ -124,6 +134,32 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     @app.post("/api/scan")
     async def scan(request: Request):
         return await gated_scan(lambda: service(request).scan())
+
+    @app.post("/api/signals/{ident}/state")
+    def signal_state(ident: str, body: SignalStateRequest, request: Request):
+        try:
+            return service(request).update_signal_state(ident, body.state)
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except RemediationError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.post("/api/watches")
+    async def add_watch(body: WatchRequest, request: Request):
+        try:
+            validate_watch_url(body.url, body.title)
+            return await gated_scan(lambda: service(request).add_watch(body.url, body.title))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except RemediationError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.delete("/api/watches/{key}")
+    def remove_watch(key: str, request: Request):
+        try:
+            return service(request).remove_watch(key)
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
 
     @app.post("/api/demo/replay")
     def replay(request: Request):

@@ -72,6 +72,9 @@ export const api = {
     return request<Signal[]>(`/signals${query}`, { signal });
   },
   signal: (id: string) => request<Signal>(`/signals/${encodeURIComponent(id)}`),
+  setSignalState: (id: string, state: 'acknowledged' | 'resolved' | 'monitoring' | 'needs_action') => post<Signal>(`/signals/${encodeURIComponent(id)}/state`, { state }),
+  addWatch: (url: string, title: string) => post<Bootstrap>('/watches', { url, title }),
+  removeWatch: (key: string) => request<Bootstrap>(`/watches/${encodeURIComponent(key)}`, { method: 'DELETE' }),
   scan: () => post<Bootstrap>('/scan'),
   replay: () => post<Bootstrap>('/demo/replay'),
   resetReplay: () => post<Bootstrap>('/demo/reset'),

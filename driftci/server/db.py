@@ -120,7 +120,6 @@ class Database:
             for table in ("signals", "incidents", "remediations", "sources", "activity"):
                 db.execute(f"DELETE FROM {table}")
             db.execute("INSERT INTO meta(key,value) VALUES('last_scan_at','null') ON CONFLICT(key) DO UPDATE SET value='null'")
-            db.execute("INSERT INTO meta(key,value) VALUES('context_queries','0') ON CONFLICT(key) DO UPDATE SET value='0'")
             self._seed_demo(db)
 
     def _seed_demo(self, db: sqlite3.Connection | None = None) -> None:
@@ -228,6 +227,10 @@ class Database:
             previous = self._load(db.execute("SELECT data FROM sources WHERE id=?", (data["id"],)).fetchone()) or {}
             previous.update(deepcopy(data))
             self._insert_document(db, "sources", previous)
+
+    def delete_source(self, ident: str) -> None:
+        with self.transaction() as db:
+            db.execute("DELETE FROM sources WHERE id=?", (ident,))
 
     def add_activity(self, kind: str, title: str, detail: str, created_at: str | None = None) -> dict:
         timestamp = created_at or utcnow()

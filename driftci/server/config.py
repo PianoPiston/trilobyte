@@ -16,15 +16,17 @@ class Settings:
     osv_cache_ttl: int
     kev_cache_ttl: int
     context_min_interval: float
+    context_daily_credit_limit: int
+    context_max_sources: int
     request_timeout: float
     web_dist: Path
     example_dir: Path
     watch_interval_seconds: int = 0
     scan_cooldown_seconds: int = 0
-    github_file_limit: int = 64
-    github_byte_limit: int = 2_000_000
+    github_file_limit: int = 120
+    github_byte_limit: int = 4_000_000
     github_file_byte_limit: int = 1_000_000
-    repository_connect_timeout_seconds: int = 75
+    repository_connect_timeout_seconds: int = 90
     vulnerability_package_limit: int = 32
     osv_batch_timeout_seconds: int = 25
 
@@ -41,15 +43,17 @@ class Settings:
             osv_cache_ttl=int(os.environ.get("DRIFTCI_OSV_CACHE_TTL", "3600")),
             kev_cache_ttl=int(os.environ.get("DRIFTCI_KEV_CACHE_TTL", "21600")),
             context_min_interval=float(os.environ.get("CONTEXTDEV_MIN_INTERVAL", "6.2")),
+            context_daily_credit_limit=int(os.environ.get("CONTEXTDEV_DAILY_CREDIT_LIMIT", "80")),
+            context_max_sources=min(12, max(1, int(os.environ.get("CONTEXTDEV_MAX_SOURCES", "6")))),
             request_timeout=float(os.environ.get("DRIFTCI_HTTP_TIMEOUT", "25")),
             web_dist=Path(os.environ.get("DRIFTCI_WEB_DIST", root / "web" / "dist")),
             example_dir=Path(os.environ.get("DRIFTCI_EXAMPLE_DIR", root / "examples" / "orders-ai")),
             watch_interval_seconds=int(os.environ.get("DRIFTCI_WATCH_INTERVAL_SECONDS", "0")),
             scan_cooldown_seconds=int(os.environ.get("DRIFTCI_SCAN_COOLDOWN_SECONDS", "0")),
-            github_file_limit=int(os.environ.get("DRIFTCI_GITHUB_FILE_LIMIT", "64")),
-            github_byte_limit=int(os.environ.get("DRIFTCI_GITHUB_BYTE_LIMIT", "2000000")),
+            github_file_limit=int(os.environ.get("DRIFTCI_GITHUB_FILE_LIMIT", "120")),
+            github_byte_limit=int(os.environ.get("DRIFTCI_GITHUB_BYTE_LIMIT", "4000000")),
             github_file_byte_limit=int(os.environ.get("DRIFTCI_GITHUB_FILE_BYTE_LIMIT", "1000000")),
-            repository_connect_timeout_seconds=int(os.environ.get("DRIFTCI_REPOSITORY_CONNECT_TIMEOUT_SECONDS", "75")),
+            repository_connect_timeout_seconds=int(os.environ.get("DRIFTCI_REPOSITORY_CONNECT_TIMEOUT_SECONDS", "90")),
             vulnerability_package_limit=int(os.environ.get("DRIFTCI_OSV_PACKAGE_LIMIT", "32")),
             osv_batch_timeout_seconds=int(os.environ.get("DRIFTCI_OSV_BATCH_SECONDS", "25")),
         )

@@ -2,17 +2,15 @@ import {
   ArrowRight,
   CalendarClock,
   CheckCircle2,
-  FileDiff,
   FileSearch,
   FilterX,
   Radar,
   Search,
   ShieldCheck,
-  WandSparkles,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
-import type { Remediation, Signal, SignalKind, Severity } from '../types';
+import type { Signal, SignalKind, Severity } from '../types';
 import { cx, errorText, formatDate, plural } from '../utils';
 import {
   Button,
@@ -28,12 +26,9 @@ import {
 const kinds: SignalKind[] = ['deprecation', 'vulnerability', 'api', 'pricing', 'status'];
 const severities: Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
 
-export function ChangeRadar({ initialSignals, remediations, onSelectSignal, onRemediate, onReview }: {
+export function ChangeRadar({ initialSignals, onSelectSignal }: {
   initialSignals: Signal[];
-  remediations: Remediation[];
   onSelectSignal: (id: string) => void;
-  onRemediate: (signalId: string) => Promise<Remediation>;
-  onReview: (remediation: Remediation) => void;
 }) {
   const [signals, setSignals] = useState(initialSignals);
   const [kind, setKind] = useState('');
@@ -42,7 +37,6 @@ export function ChangeRadar({ initialSignals, remediations, onSelectSignal, onRe
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [generating, setGenerating] = useState('');
 
   const loadSignals = useCallback(async (abort?: AbortSignal) => {
     setLoading(true);
@@ -84,18 +78,6 @@ export function ChangeRadar({ initialSignals, remediations, onSelectSignal, onRe
     setSeverity('');
     setState('');
     setQuery('');
-  };
-
-  const remediate = async (signalId: string) => {
-    setGenerating(signalId);
-    setError('');
-    try {
-      await onRemediate(signalId);
-    } catch (requestError) {
-      setError(errorText(requestError));
-    } finally {
-      setGenerating('');
-    }
   };
 
   return (
@@ -166,9 +148,7 @@ export function ChangeRadar({ initialSignals, remediations, onSelectSignal, onRe
         </div>
       ) : (
         <div className={cx('signal-list', loading && 'list-refreshing')} aria-busy={loading}>
-          {filtered.map((signal) => {
-            const remediation = remediations.find((item) => item.signal_id === signal.id);
-            return (
+          {filtered.map((signal) => (
               <article className="signal-row" key={signal.id}>
                 <button className="signal-row-main" onClick={() => onSelectSignal(signal.id)}>
                   <span className={cx('signal-rail', `line-${signal.severity}`)} aria-hidden="true" />
@@ -190,25 +170,12 @@ export function ChangeRadar({ initialSignals, remediations, onSelectSignal, onRe
                   </span>
                 </button>
                 <div className="signal-row-actions">
-                  {remediation ? (
-                    <Button size="small" icon={FileDiff} onClick={() => onReview(remediation)}>Review patch</Button>
-                  ) : signal.state !== 'resolved' ? (
-                    <Button
-                      size="small"
-                      icon={WandSparkles}
-                      loading={generating === signal.id}
-                      onClick={() => void remediate(signal.id)}
-                    >
-                      {signal.state === 'fix_ready' ? 'Load patch' : 'Generate patch'}
-                    </Button>
-                  ) : null}
                   <Button variant="ghost" size="small" onClick={() => onSelectSignal(signal.id)} aria-label={`Inspect ${signal.title}`}>
-                    Inspect<ArrowRight aria-hidden="true" />
+                    Review evidence<ArrowRight aria-hidden="true" />
                   </Button>
                 </div>
               </article>
-            );
-          })}
+          ))}
         </div>
       )}
     </div>

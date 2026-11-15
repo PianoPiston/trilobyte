@@ -119,7 +119,7 @@ export function RepositoryDrawer({ data, health, busy, onClose, onConnect, onRep
               aria-describedby="repository-help"
             />
           </div>
-          <small id="repository-help">Public GitHub repositories over HTTPS, including nodejs/node. Defaults: 64 files / 2 MB, up to 25 seconds of source reading; coverage is reported.</small>
+          <small id="repository-help">Public GitHub repositories over HTTPS, including nodejs/node. Defaults: 120 files / 4 MB, up to 25 seconds of source reading; coverage is reported.</small>
           {error && <InlineNotice tone="error" role="alert">{error}</InlineNotice>}
           {busy === 'connect' && <InlineNotice className="repository-progress" role="status"><div><strong>Indexing a bounded source subset…</strong><p>Manifests are read first, then intelligence runs. Large repositories normally finish in seconds; slow files expire and are reported, never silently skipped.</p></div></InlineNotice>}
           <Button type="submit" variant="primary" icon={ArrowUpRight} loading={busy === 'connect'}>Connect & scan repository</Button>

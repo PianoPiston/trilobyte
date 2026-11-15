@@ -7,7 +7,7 @@ import {
   Clock3,
   Download,
   ExternalLink,
-  FileDiff,
+  FileCheck2,
   History,
   ListChecks,
   PackageCheck,
@@ -15,7 +15,6 @@ import {
   ShieldAlert,
   ShieldCheck,
   Siren,
-  WandSparkles,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
@@ -23,7 +22,6 @@ import type {
   Bootstrap,
   Incident,
   IncidentsResponse,
-  Remediation,
 } from '../types';
 import { cx, errorText, formatDate, relativeTime, responseDuration } from '../utils';
 import {
@@ -64,12 +62,9 @@ function IncidentMetadata({ incident }: { incident: Incident }) {
   );
 }
 
-export function Vulnerabilities({ data, remediations, onIncidentUpdated, onRemediate, onReview }: {
+export function Vulnerabilities({ data, onIncidentUpdated }: {
   data: Bootstrap;
-  remediations: Remediation[];
   onIncidentUpdated: (incident: Incident) => void;
-  onRemediate: (signalId: string) => Promise<Remediation>;
-  onReview: (remediation: Remediation) => void;
 }) {
   const [report, setReport] = useState<IncidentsResponse>(() => toReport(data));
   const [tab, setTab] = useState<'active' | 'history'>('active');
@@ -78,7 +73,6 @@ export function Vulnerabilities({ data, remediations, onIncidentUpdated, onRemed
   const [error, setError] = useState('');
   const [actionError, setActionError] = useState('');
   const [updatingAction, setUpdatingAction] = useState('');
-  const [generating, setGenerating] = useState(false);
   const [reporting, setReporting] = useState('');
 
   const refresh = useCallback(async (abort?: AbortSignal) => {
@@ -130,19 +124,6 @@ export function Vulnerabilities({ data, remediations, onIncidentUpdated, onRemed
       setActionError(errorText(requestError));
     } finally {
       setUpdatingAction('');
-    }
-  };
-
-  const remediate = async (incident: Incident) => {
-    if (!incident.signal_id) return;
-    setGenerating(true);
-    setActionError('');
-    try {
-      await onRemediate(incident.signal_id);
-    } catch (requestError) {
-      setActionError(errorText(requestError));
-    } finally {
-      setGenerating(false);
     }
   };
 
@@ -246,16 +227,8 @@ export function Vulnerabilities({ data, remediations, onIncidentUpdated, onRemed
                 </InlineNotice>
 
                 <div className="incident-fix-bar">
-                  <div><FileDiff aria-hidden="true" /><span>Targeted remediation</span><small>Generate a reviewable patch with checks and citations.</small></div>
+                  <div><FileCheck2 aria-hidden="true" /><span>Response handoff</span><small>{selected.fixed_version ? `Upgrade to ${selected.fixed_version} or later, then complete verification.` : 'Follow the linked advisory and complete deployment-specific verification.'}</small></div>
                   <Button icon={Download} loading={reporting === selected.id} onClick={() => void exportReport(selected)}>Export IR record</Button>
-                  {selected.signal_id && (() => {
-                    const existing = remediations.find((item) => item.signal_id === selected.signal_id);
-                    return existing ? (
-                      <Button icon={FileDiff} onClick={() => onReview(existing)}>Review patch</Button>
-                    ) : (
-                      <Button variant="primary" icon={WandSparkles} loading={generating} onClick={() => void remediate(selected)}>Generate fix</Button>
-                    );
-                  })()}
                 </div>
 
                 {actionError && <InlineNotice tone="error" role="alert">{actionError}</InlineNotice>}

@@ -46,6 +46,8 @@ export interface Summary {
   production_models: number;
   resolved_this_month: number;
   mean_response_hours: number;
+  watched_sources: number;
+  observed_changes: number;
 }
 
 export interface SourceReceipt {
@@ -55,6 +57,36 @@ export interface SourceReceipt {
   retrieved_at: string;
   mode: string;
   quote: string;
+}
+
+export interface WebObservation {
+  id: string;
+  source_id: string;
+  title: string;
+  url: string;
+  observed_at: string;
+  mode: string;
+  content_hash: string;
+  previous_hash: string;
+  added_lines: number;
+  removed_lines: number;
+  added: string[];
+  removed: string[];
+  publisher?: string;
+  source_title?: string;
+  signal_id?: string | null;
+  matched_terms?: string[];
+}
+
+export interface Discovery {
+  id: string;
+  title: string;
+  url: string;
+  summary: string;
+  published_at: string | null;
+  retrieved_at: string;
+  mode: string;
+  matched_terms: string[];
 }
 
 export interface CodeEvidence {
@@ -85,6 +117,9 @@ export interface Signal {
   source_receipts: SourceReceipt[];
   remediation_id: string | null;
   created_at: string;
+  watch_id?: string;
+  change?: WebObservation;
+  reviewed_at?: string | null;
 }
 
 export interface Dependency {
@@ -117,6 +152,13 @@ export interface WatchedSource {
   packages_total?: number;
   packages_checked?: number;
   packages_pending?: number;
+  category?: string;
+  package?: string | null;
+  custom?: boolean;
+  watch?: boolean;
+  baseline_at?: string;
+  last_changed_at?: string;
+  observations?: WebObservation[];
 }
 
 export interface IncidentAction {
@@ -159,21 +201,37 @@ export interface Bootstrap {
   incidents: Incident[];
   history: Incident[];
   remediations?: Remediation[];
+  changes: WebObservation[];
+  discoveries: Discovery[];
+  research: { query?: string; retrieved_at?: string; mode?: string } | null;
   metrics: {
     source_receipts: number;
     files_indexed: number;
     dependencies_indexed: number;
     context_queries: number;
+    context_credits: number;
   };
 }
 
 export interface Health {
   ok: boolean;
   version: string;
-  context_dev: { configured: boolean; mode: string };
+  context_dev: {
+    configured: boolean;
+    mode: string;
+    usage: {
+      queries: number;
+      credits: number;
+      daily_queries: number;
+      daily_credits: number;
+      daily_credit_limit: number;
+      cache_ttl_seconds: number;
+    };
+  };
   github: { configured: boolean; mode: string };
   last_scan_at: string | null;
   source_counts: Record<string, number>;
+  watcher?: { enabled: boolean; interval_seconds: number; implementation: string };
 }
 
 export interface IncidentsResponse {
@@ -218,4 +276,4 @@ export interface Remediation {
   pr_number: number | null;
 }
 
-export type View = 'overview' | 'radar' | 'vulnerabilities' | 'evidence';
+export type View = 'overview' | 'watch' | 'radar' | 'vulnerabilities' | 'evidence';

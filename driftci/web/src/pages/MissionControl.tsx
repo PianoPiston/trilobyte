@@ -5,16 +5,17 @@ import {
   CheckCircle2,
   CircleDot,
   Clock3,
+  Diff,
   FileDiff,
   FileSearch,
   Gauge,
   Globe2,
   Layers3,
+  Radio,
   ScanSearch,
   ShieldAlert,
-  Sparkles,
 } from 'lucide-react';
-import type { Bootstrap, View } from '../types';
+import type { Bootstrap, Health, View } from '../types';
 import { cx, formatDate, plural, relativeTime, severityRank } from '../utils';
 import {
   Button,
@@ -35,8 +36,9 @@ function ActivityIconFor({ type }: { type: string }) {
   return <CircleDot aria-hidden="true" />;
 }
 
-export function MissionControl({ data, onNavigate, onSelectSignal }: {
+export function MissionControl({ data, health, onNavigate, onSelectSignal }: {
   data: Bootstrap;
+  health: Health | null;
   onNavigate: (view: View) => void;
   onSelectSignal: (id: string) => void;
 }) {
@@ -45,14 +47,18 @@ export function MissionControl({ data, onNavigate, onSelectSignal }: {
     .sort((a, b) => severityRank[a.severity] - severityRank[b.severity]);
   const maximumUsage = Math.max(1, ...data.dependencies.map((dependency) => dependency.usage_count));
   const osv = data.sources.find((source) => source.publisher === 'OSV');
+  const latestChange = data.changes[0];
+  const visibleDependencies = [...data.dependencies]
+    .sort((a, b) => b.issues - a.issues || b.usage_count - a.usage_count || a.name.localeCompare(b.name))
+    .slice(0, 8);
 
   return (
     <div className="page overview-page">
       <PageHeading
         eyebrow="Mission control"
-        title="Changes that need a decision."
-        description="Official dependency intelligence, mapped to the code your team owns."
-        actions={<Button icon={FileSearch} onClick={() => onNavigate('evidence')}>Inspect evidence</Button>}
+        title="Live changes. Exact blast radius."
+        description="The official web is watched through Context.dev, then each meaningful change is traced to the code your team owns."
+        actions={<Button icon={Globe2} onClick={() => onNavigate('watch')}>Open web watch</Button>}
       />
 
       {data.workspace.coverage && !data.workspace.coverage.complete && (
@@ -70,6 +76,18 @@ export function MissionControl({ data, onNavigate, onSelectSignal }: {
           </InlineNotice>
         </div>
       )}
+
+      <section className="live-pulse" aria-label="Context.dev watch summary">
+        <span className="pulse-symbol"><Radio aria-hidden="true" /></span>
+        <div className="pulse-copy">
+          <span>Live web memory · Context.dev</span>
+          <strong>{latestChange ? latestChange.title : `${data.summary.watched_sources} official sources, each with a persistent baseline.`}</strong>
+          <p>{latestChange ? `${latestChange.added_lines} additions and ${latestChange.removed_lines} removals observed ${relativeTime(latestChange.observed_at).toLowerCase()}.` : 'The next changed snapshot will appear with its diff and affected code locations.'}</p>
+        </div>
+        <div className="pulse-stat"><span>Changes observed</span><strong>{data.summary.observed_changes}</strong></div>
+        <div className="pulse-stat"><span>Local credits today</span><strong>{health?.context_dev.usage.daily_credits ?? 0}</strong></div>
+        <Button variant="ghost" onClick={() => onNavigate('watch')}>Watchlist<ArrowRight aria-hidden="true" /></Button>
+      </section>
 
       <section className="metric-grid" aria-label="Workspace risk summary">
         <article className="metric-card risk-card">
@@ -98,10 +116,10 @@ export function MissionControl({ data, onNavigate, onSelectSignal }: {
           <p>{plural(data.incidents.length, 'active incident')}</p>
         </article>
         <article className="metric-card">
-          <div className="metric-icon tone-mint"><Sparkles aria-hidden="true" /></div>
-          <span className="metric-label">Remediations ready</span>
-          <div className="metric-value">{data.summary.remediations_ready}</div>
-          <p>Reviewable patches, never auto-merged</p>
+          <div className="metric-icon tone-mint"><Diff aria-hidden="true" /></div>
+          <span className="metric-label">Web changes observed</span>
+          <div className="metric-value">{data.summary.observed_changes}</div>
+          <p>{plural(data.summary.watched_sources, 'watched source')} · persistent snapshots</p>
         </article>
       </section>
 
@@ -148,7 +166,7 @@ export function MissionControl({ data, onNavigate, onSelectSignal }: {
         </section>
 
         <section className="panel sources-panel">
-          <SectionHeading title="Source health" description="Last-known evidence survives individual source failures." />
+          <SectionHeading title="Source health" description="Live, cached and replay states stay explicit." action={<Button variant="ghost" size="small" onClick={() => onNavigate('watch')}>Manage<ArrowRight aria-hidden="true" /></Button>} />
           {data.sources.length ? (
             <div className="source-status-list">
               {data.sources.map((source) => (
@@ -176,13 +194,13 @@ export function MissionControl({ data, onNavigate, onSelectSignal }: {
 
       <div className="overview-secondary-grid">
         <section className="panel dependency-panel">
-          <SectionHeading title="Dependency blast radius" description="Repository usage returned by the latest index." />
+          <SectionHeading title="Dependency blast radius" description={`${data.dependencies.length} packages indexed; highest-impact packages shown.`} action={<span className="count-label">Top {visibleDependencies.length}</span>} />
           {data.dependencies.length ? (
             <div className="dependency-table-wrap">
               <table className="dependency-table">
                 <thead><tr><th>Package</th><th>Health</th><th>Repository usage</th><th>Issues</th></tr></thead>
                 <tbody>
-                  {data.dependencies.map((dependency) => (
+                  {visibleDependencies.map((dependency) => (
                     <tr key={`${dependency.ecosystem}:${dependency.name}`}>
                       <td>
                         <div className="package-name"><Boxes aria-hidden="true" /><code>{dependency.name}</code></div>
@@ -222,7 +240,7 @@ export function MissionControl({ data, onNavigate, onSelectSignal }: {
               ))}
             </ol>
           ) : (
-            <EmptyState icon={ActivityIcon} title="No activity yet" description="Scans, decisions and remediation activity will be recorded here." />
+            <EmptyState icon={ActivityIcon} title="No activity yet" description="Refreshes, web changes and review activity will be recorded here." />
           )}
         </section>
       </div>

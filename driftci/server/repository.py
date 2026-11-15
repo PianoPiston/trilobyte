@@ -24,8 +24,8 @@ class RepositoryError(ValueError):
 class SourceLimits:
     """Limits on selected text reads, deliberately not a total repository limit."""
 
-    max_files: int = 64
-    max_bytes: int = 2_000_000
+    max_files: int = 120
+    max_bytes: int = 4_000_000
     max_file_bytes: int = 1_000_000
     concurrency: int = 8
     max_seconds: int = 25
