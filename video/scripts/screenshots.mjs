@@ -19,7 +19,7 @@ async function toggle(label) {
 }
 const shots = [
   ["01-home", "/", null],
-  ["02-swiss-apartments", "/d/swiss_dwellings~site3634_bldg5596_floor24203", "How many apartments are on this floor plan?"],
+  ["02-swiss-bedrooms", "/d/swiss_dwellings~site3634_bldg5596_floor24203", "How many rooms labelled 'Schlafzimmer' are there on this floor?"],
   ["03-swiss-area", "/d/swiss_dwellings~site3634_bldg5596_floor24203", "What is the total floor area of all apartments on this floor in m²?"],
   ["04-cubicasa-bedrooms", "/d/cubicasa5k~colorful-12981", "How many bedrooms (makuuhuone, usually marked MH) are on this floor plan?"],
   ["05-cubicasa-windows", "/d/cubicasa5k~colorful-12981", "Kuinka monta ikkunaa pohjapiirustuksessa on?"],

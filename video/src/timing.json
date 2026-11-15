@@ -1,0 +1,82 @@
+{
+ "total": 111.53,
+ "scenes": [
+  {
+   "id": "title",
+   "say": "Trilobyte answers questions about construction drawings, and shows exactly where every answer comes from.",
+   "vo": "vo/00-title.wav",
+   "voSec": 5.82,
+   "sec": 7.12
+  },
+  {
+   "id": "problem",
+   "say": "Site engineers spend hours digging quantities out of drawings. A chatbot that guesses doesn't help. On site, a wrong number costs real money.",
+   "vo": "vo/01-problem.wav",
+   "voSec": 9.03,
+   "sec": 9.73
+  },
+  {
+   "id": "upload",
+   "say": "Upload a drawing, a scan, a PDF or a CAD plan, and ask in English or Finnish.",
+   "vo": "vo/02-upload.wav",
+   "voSec": 5.56,
+   "sec": 6.26
+  },
+  {
+   "id": "cad",
+   "say": "When CAD data exists, Trilobyte converts the drawing into a standardized file and answers exactly. Eight bedrooms, each one highlighted on the plan.",
+   "vo": "vo/03-cad.wav",
+   "voSec": 9.5,
+   "sec": 10.2
+  },
+  {
+   "id": "ifc",
+   "say": "For BIM models, every answer cites the IFC elements it was computed from.",
+   "vo": "vo/04-ifc.wav",
+   "voSec": 4.45,
+   "sec": 5.15
+  },
+  {
+   "id": "scan",
+   "say": "Scans are harder. A symbol detector finds doors, windows and fixtures, and we read every word printed on the sheet.",
+   "vo": "vo/05-scan.wav",
+   "voSec": 6.72,
+   "sec": 7.42
+  },
+  {
+   "id": "decide",
+   "say": "Instead of blindly trusting one model, several independent decision makers each propose an answer: the CAD and BIM parsers, the symbol detector, the printed text, and a fine-tuned vision model. A final decision layer, with a language model as judge, ranks them and picks the most reliable one.",
+   "vo": "vo/06-decide.wav",
+   "voSec": 17.84,
+   "sec": 18.54
+  },
+  {
+   "id": "ranked",
+   "say": "You see the winner, the alternatives below it, and an honest needs check when the sources disagree.",
+   "vo": "vo/07-ranked.wav",
+   "voSec": 5.1,
+   "sec": 5.8
+  },
+  {
+   "id": "context",
+   "say": "Drawings rarely tell the whole story. Trilobyte uses the context dot dev web search API to pull in project information, like archive records. That lifted our historic accuracy from 58 to 94 percent. In a company, the same slot takes internal documentation, so we don't depend on perfect detection.",
+   "vo": "vo/08-context.wav",
+   "voSec": 18.92,
+   "sec": 19.62
+  },
+  {
+   "id": "results",
+   "say": "We fine-tuned a small open model on Verda GPUs and measured everything on drawings it never saw. When Trilobyte answers on its own, it is right 99 percent of the time, for under two cents per thousand questions.",
+   "vo": "vo/09-results.wav",
+   "voSec": 11.87,
+   "sec": 12.57
+  },
+  {
+   "id": "close",
+   "say": "Standardized data, a web app, an API, and an MCP server any agent can use. Trilobyte. Every answer points to its evidence.",
+   "vo": "vo/10-close.wav",
+   "voSec": 8.42,
+   "sec": 9.12
+  }
+ ]
+}
