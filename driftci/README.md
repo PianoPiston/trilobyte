@@ -4,24 +4,26 @@
 
 DriftCI connects **live GitHub pull requests and CI** to the **official web evidence** your application depends on. Pull requests, reviews, checks and Context.dev observations share one durable event timeline. Reviewers can see whether external evidence is still relevant and record a decision for one exact commit and evidence snapshot.
 
-**Context.dev** retrieves and searches official model lifecycle, pricing, SDK-release and status pages. DriftCI owns repository analysis, change detection, evidence mapping, local polling and review decisions. OSV and CISA KEV supply separate vulnerability evidence.
+**Context.dev** retrieves and searches official model lifecycle, pricing, SDK-release and status pages, preserves public GitHub API metadata through its byte transport, and executes the repository's hosted hourly security monitor. DriftCI owns repository analysis, change detection, evidence mapping and local review decisions. OSV and CISA KEV supply separate vulnerability evidence.
 
 **Live demo:** [driftci.ajc.contexio.fi](https://driftci.ajc.contexio.fi) · public, login-free evaluation workspace.
 
 ![DriftCI Release Room](docs/screenshots/release-room.png)
 
 ```text
-GitHub pull requests / reviews / checks      Official web pages
-                 │                         Context.dev scrape + scoped search
-        ETag polling or verified webhook                │
-                 │                          normalized snapshots + observed diffs
-                 └───────────────────┬──────────────────┘
-                                     ▼
-                       PR head + changed-diff evidence
-                                     │
-                         sequenced events / SSE replay
-                                     │
-                    named local decision + exact-head receipt
+GitHub metadata / bounded diffs              Official web sources
+PR heads / reviews / checks                 Context.dev web + scoped search
+tree / graph / selected raw reads           + public GitHub metadata bytes
+              │                             + remote monitor records
+              ▼                                        │
+Pinned inventory + exact PR evidence                   ▼
+dependencies / native declarations            snapshots / observations
+scoped OSV + CISA matches                 hosted schedule / change receipts
+              └──────────┬─────────────────────────────┘
+                         ▼
+        Sequenced events / SSE / scoped evidence
+                         ▼
+       Named local decision + exact-head receipt
 ```
 
 ## What works
@@ -33,13 +35,18 @@ GitHub pull requests / reviews / checks      Official web pages
 - **Repository-derived Context.dev watches.** Up to six relevant official deprecation, pricing, SDK/framework-release and status pages derive from configured models and installed packages. One scoped official-domain search adds at most five research results.
 - **Persistent web observations.** The first successful snapshot is a baseline. Subsequent normalized content differences create bounded added/removed excerpts, content hashes and retrieval provenance. Stock page timestamps and navigation are not semantic service-status changes.
 - **Precise PR matching.** Matching uses added/context lines and current paths from bounded PR diffs. Removed lines and deleted files do not count as current configuration. Existing repository evidence supplies additional paths, with explicit partial-coverage limits.
-- **Evidence and incident response.** Exact model lifecycle matches connect official receipts to code. OSV/CISA findings retain installed-version evidence, uncertainty labels, ordered incident checklists, history and Markdown exports. Reachability clues are not proof of exploitability.
+- **Targeted large-repository inventory.** Read the commit tree, GitHub dependency graph, manifests, lockfiles, native-version declarations and selected old source without archives, clones, installs or repository execution. Manifest/read, parser, source, unresolved-version and advisory-query coverage are reported separately.
+- **Evidence and incident response.** OSV batches are expanded to full advisory records before affected-range matching. Every occurrence retains its package version, scope and evidence manifest through the signal, incident and Markdown export. Bundled/test/documentation/dependency-graph findings are inventory evidence, not production-exploitability claims. Native declarations require platform-specific review.
+- **Real hosted monitoring.** A reusable Context.dev remote hourly resource supplies monitor/run/change records. Baselines and no-change runs do not create alerts. Local reconciliation is displayed separately from the remote scheduler; Context.dev monitor webhooks are not implemented.
+- **Shared credit accounting.** Settled ordinary usage, monitor commitments and in-flight reservations reduce the configured daily availability. Monitor creation checks the same shared budget before making a request.
 
 The interface distinguishes **live**, **cached**, **historical replay**, **partial**, **stale** and **unconfigured** evidence. It has no AI patch-generation actions.
 
 ## Current public demonstration
 
-The connected public workspace is **`vercel/ai`**, a large real AI SDK monorepo. Its selective source index is explicitly partial: **120 files**, pinned to one main-branch commit, without a clone or archive. The Release Room reads a recent window of at most ten PRs and retrieves bounded detail incrementally. This is a public-repository demonstration, not a Vercel-operated release console or an endorsement of GitHub approvals.
+The connected public workspace is **`nodejs/node`**, pinned to `c07db8c5c1b1b18e1e0e088b83f56922c142c0cf`. Its selective index contains **1,600 records / 20,521,906 bytes**, all 525 discovered manifest candidates, 67 native-version files and 753 dependency-graph packages. Five invalid test-fixture manifests remain explicit parse errors. The 56,696-entry tree is complete, while broader source coverage remains partial. The public OSV pass checked **5,581/5,581** supported exact comparisons and retrieved **157/157** advisory details. Its 206 package/manifest matches comprise 204 bundled and two dependency-graph findings; they cover 98 unique CVEs and are not 206 production exploits.
+
+The Release Room reads a recent window of at most ten PRs. Repository connect retrieves the lightweight PR index first; detail is retrieved later in bounded turns and remains visibly incomplete until available. This is a public-repository demonstration, not a Node.js-operated release console or an endorsement of GitHub approvals.
 
 `junction/orders-ai` remains the small deliberately outdated example. Use **Repository and demo controls** to restore it or replay the clearly labelled historical OpenAI retirement. Live sources and historical replay are separate states.
 
@@ -64,7 +71,7 @@ set -a
 set +a
 ```
 
-Optional GitHub settings use `DRIFTCI_GITHUB_TOKEN` and `DRIFTCI_GITHUB_WEBHOOK_SECRET`; see `.env.example`. The GitHub token is sent only to `api.github.com`. The webhook secret is separate. Release polling remains the fallback when no webhook is configured.
+Optional GitHub settings use `GITHUB_TOKEN` and `DRIFTCI_GITHUB_WEBHOOK_SECRET`; see `.env.example`. The GitHub token is sent only to `api.github.com`. The webhook secret is separate. Release polling remains the fallback when no webhook is configured.
 
 ## Request and credit controls
 
@@ -75,7 +82,7 @@ Optional GitHub settings use `DRIFTCI_GITHUB_TOKEN` and `DRIFTCI_GITHUB_WEBHOOK_
 | Hot provider-status cache | 45 seconds; eligible on the next release poll |
 | Context.dev request pacing | 6.2 seconds |
 | Context.dev sources / searches per ordinary refresh | 6 pages / 1 search with up to 5 results |
-| Context.dev local daily ceiling | 80 credits, reserved before a request |
+| Context.dev local daily ceiling | 10,000 credits, reserved before a request |
 | Background full web/CVE refresh | 15 minutes, shared scan lock and 30-second cooldown |
 | Recent GitHub PR polling | 90 seconds, with persistent ETags |
 | Recent PR baseline window | At most 10 records |
@@ -83,7 +90,11 @@ Optional GitHub settings use `DRIFTCI_GITHUB_TOKEN` and `DRIFTCI_GITHUB_WEBHOOK_
 | PR changed files | First 30 files, 12,000 diff characters per file |
 | Reviews / check runs | First 50 per PR/head |
 | GitHub release metadata response | 2 MB maximum |
-| Repository source index | 120 files, 4 MB total, 1 MB per file, 25 seconds |
+| Targeted repository index | 1,600 records, 32 MB total, 2 MB per file, 40 source-read seconds |
+| GitHub metadata via Context.dev | Public `api.github.com` JSON only; base64/body-size/content-type validation |
+| Dependency graph / SBOM metadata | 12 MB body limit |
+| OSV advisory comparison | Exact supported versions only; 16,000-package cap, bounded batch deadline |
+| Hosted hourly monitor budget | 48 credits/day, reconciled using real remote run credit data |
 | GitHub webhook payload | 512 KB maximum, HMAC-SHA256 required |
 
 Hot status mode applies when an open PR has pending checks or was updated within 15 minutes. It does not make ordinary pricing and documentation pages poll every 45 seconds. Cached Context.dev responses consume no new request. PR events retrieve metadata and bounded diffs, not a full repository rescan or search request.
@@ -92,7 +103,9 @@ Permanent bounds, such as a 30-file PR window or omitted large-file patch, do no
 
 GitHub quota errors retain existing evidence and create a visible source warning. Persistent retry windows honor `Retry-After` and reset headers; repeated failures without retry metadata use bounded exponential backoff. A suppressed retry makes no upstream request. A least-privilege read-only token is recommended for an active public demonstration because anonymous GitHub API capacity is small.
 
-Context.dev counters are **locally recorded** request and credit usage, not account-side billing reconciliation. Ordinary polling is local DriftCI polling using Context.dev Scrape/Search. **No Context.dev monitor resource, monitor ID, remote schedule, monitor webhook or monitor-side run history is claimed.** An optional verified GitHub webhook is a separate integration.
+Context.dev counters are **locally recorded** request and credit usage, not account-side billing reconciliation. Ordinary polling is local DriftCI polling using Context.dev Scrape/Search. The separate Context.dev remote monitor has ID `mon_69e93e826b1f4d3993f6334286174703` and real hourly run records. Baselines, failed/skipped runs and no-change completions are distinguished in the UI. Context.dev monitor webhooks are not implemented; an optional verified GitHub webhook is a separate integration.
+
+Public GitHub API metadata can use Context.dev's byte-preserving transport and consumes its measured ordinary credits. Selective raw source reads remain direct and immutable-SHA-pinned. GitHub authorization is sent only to direct `api.github.com` requests, never through Context.dev or to raw-content hosts. Context.dev fallback failures and direct GitHub transport errors are disclosed rather than hidden.
 
 OSV and CISA use their own public endpoints. They do not consume Context.dev credits.
 
@@ -100,7 +113,7 @@ OSV and CISA use their own public endpoints. They do not consume Context.dev cre
 
 Repository connection accepts a canonical public `https://github.com/owner/repository` URL. DriftCI resolves a commit, reads its tree and selectively fetches manifests and application/config source. Root manifests and runtime provider integrations are prioritized over nested examples; tests, fixtures, snapshots, vendor trees, build output, documentation and media are excluded from model evidence. Source is read as untrusted text and never installed, imported or executed.
 
-Nested manifest scopes are preserved. Large repositories and package sets may be partially covered. Context.dev receives requested public web URLs and repository-derived search terms, never source contents. OSV receives exact installed package/version tuples only.
+Nested manifest and bundled scopes are preserved. Inventory includes application, test, example, documentation, native and bundled declarations with scope labels; model evidence remains restricted to application source. Large repositories and package sets may be partially covered. Context.dev receives requested public web/API URLs and repository-derived search terms, never source contents. OSV receives only supported exact package ecosystem/name/version tuples; native declarations and unresolved ranges stay visible as review gaps.
 
 PR evidence accounts for real coverage boundaries:
 
@@ -151,7 +164,7 @@ Interactive FastAPI documentation is available at `/docs`. JSON API responses us
 make test
 ```
 
-This builds the frontend and runs **48 backend tests**. Coverage includes lifecycle parsing, live mocked observations, cache/credit accounting, repository inventory and partial source reads, event replay, HMAC validation and deduplication, PR head changes, later external evidence, decision expiry, removed-code diffs, oversized patches, ETag quiet polling and rate-limit suppression.
+This builds the frontend and runs **67 backend tests**. Coverage includes lifecycle parsing, live mocked observations, shared cache/credit and in-flight reservation accounting, scoped repository inventory, successful/partial source reads, advisory-detail expansion and pagination, application-only remediation, monitor baselines/schedules, event replay, HMAC validation and deduplication, PR head changes, later external evidence, decision expiry, removed-code diffs, oversized patches, index-only PR detail, ETag quiet polling and rate-limit suppression.
 
 Run real Chromium QA:
 
@@ -164,6 +177,11 @@ DRIFTCI_URL=https://driftci.ajc.contexio.fi \
 DRIFTCI_RELEASE_DECISION_QA=1 \
   DRIFTCI_URL=http://10.0.2.2:8100 \
   DRIFTCI_QA_SCRIPT=release-smoke.cjs ./scripts/browser-smoke-docker.sh
+
+# Read-only real coverage, incident-scope and hosted-monitor evidence.
+DRIFTCI_QA_SCRIPT=coverage-smoke.cjs DRIFTCI_REPOSITORY=nodejs-node \
+  DRIFTCI_QA_OUT=/tmp/driftci-coverage-final \
+  ./scripts/browser-smoke-docker.sh http://10.0.2.2:8100
 
 # Legacy review/incident UI. The wrapper ALWAYS starts an isolated offline
 # server and a fresh database, even if a public target was supplied.

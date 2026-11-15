@@ -23,7 +23,7 @@ import type {
   Incident,
   IncidentsResponse,
 } from '../types';
-import { cx, errorText, formatDate, relativeTime, responseDuration } from '../utils';
+import { cx, errorText, formatDate, label, relativeTime, responseDuration } from '../utils';
 import {
   Button,
   CodeEvidence,
@@ -55,6 +55,8 @@ function IncidentMetadata({ incident }: { incident: Incident }) {
   return (
     <div className="incident-facts">
       <div><span>Affected package</span><code>{incident.affected_package}@{incident.affected_version}</code></div>
+      <div><span>Dependency scope</span><strong>{incident.dependency_scope ? label(incident.dependency_scope) : 'Not recorded'}</strong></div>
+      <div><span>Evidence manifest</span><code>{incident.manifest ?? 'Not recorded'}</code></div>
       <div><span>Fixed version</span><code>{incident.fixed_version ?? 'No fix specified'}</code></div>
       <div><span>First seen</span><strong>{formatDate(incident.first_seen_at, true)}</strong></div>
       <div><span>Reachability clue</span><strong>{incident.reachability}</strong></div>
@@ -223,7 +225,7 @@ export function Vulnerabilities({ data, onIncidentUpdated }: {
 
                 <InlineNotice tone="warning" className="reachability-note">
                   <AlertTriangle aria-hidden="true" />
-                  <div><strong>{selected.reachability} reachability is a repository heuristic.</strong><p>{selected.reachability_reason}</p><small>Installation alone does not establish exploitability. Verify deployment behavior.</small></div>
+                  <div><strong>{selected.reachability} reachability is a repository heuristic.</strong><p>{selected.reachability_reason}</p><small>{selected.dependency_scope === 'bundled' ? 'Bundled inventory evidence. Review the owning component’s workflow and deployment separately.' : selected.dependency_scope === 'dependency_graph' ? 'Structured dependency-graph evidence. Identify the owning manifest before upgrading.' : selected.dependency_scope === 'application' ? 'Application-manifest evidence. Actual usage and deployment still require validation.' : ''} Installation alone does not establish exploitability. Verify deployment behavior.</small></div>
                 </InlineNotice>
 
                 <div className="incident-fix-bar">

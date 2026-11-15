@@ -114,16 +114,24 @@ class Database:
         with self._lock:
             return self._load(self._db.execute("SELECT data FROM workspace WHERE singleton=1").fetchone()) or {}
 
-    def files(self) -> dict[str, str]:
+    def files(self) -> dict:
+        """Preserve legacy plain-text seeds and JSON-encode structured repository records."""
         with self._lock:
             rows = self._db.execute("SELECT path,content FROM files ORDER BY path").fetchall()
-        return {row["path"]: row["content"] for row in rows}
+        result = {}
+        for row in rows:
+            if row["content"].startswith('{"__driftci_file_v1__":'):
+                record = json.loads(row["content"])["__driftci_file_v1__"]
+                result[row["path"]] = {"path": row["path"], **record}
+            else:
+                result[row["path"]] = row["content"]
+        return result
 
     def replace_workspace(self, workspace: dict, files: dict[str, str], clear_operational: bool = True) -> None:
         with self.transaction() as db:
             db.execute("INSERT INTO workspace(singleton,data) VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET data=excluded.data", (json.dumps(workspace),))
             db.execute("DELETE FROM files")
-            db.executemany("INSERT INTO files(path,content) VALUES(?,?)", sorted(files.items()))
+            db.executemany("INSERT INTO files(path,content) VALUES(?,?)", [(path, json.dumps({"__driftci_file_v1__": {"path": path, **value}}) if isinstance(value, dict) else value) for path, value in sorted(files.items())])
             if clear_operational:
                 for table in ("signals", "incidents", "remediations", "sources", "activity", "pull_requests", "release_events", "release_decisions"):
                     db.execute(f"DELETE FROM {table}")

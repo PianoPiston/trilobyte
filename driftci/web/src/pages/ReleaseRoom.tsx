@@ -311,7 +311,7 @@ export function ReleaseRoom({ data, health, connected, busy, onRefresh, onSelect
       />
 
       <section className="release-live-banner" aria-label="Live release stream status">
-        <div className="release-stream-presence"><span className={cx('release-presence-dot', connected ? 'connected' : 'disconnected')} /><div><strong>{connected ? 'Event stream connected' : 'Event stream reconnecting'}</strong><span>{stream.webhook_configured ? 'Verified webhooks + conditional polling' : `GitHub conditional polling every ${stream.poll_interval_seconds}s`}</span></div></div>
+        <div className="release-stream-presence"><span className={cx('release-presence-dot', connected ? 'connected' : 'disconnected')} /><div><strong>{connected ? 'Event stream connected' : 'Event stream reconnecting'}</strong><span>{stream.webhook_configured ? 'Verified webhooks + metadata reconciliation' : stream.metadata_transport === 'context.dev_bytes' ? `Context.dev metadata · reconciliation every ${stream.poll_interval_seconds}s` : stream.metadata_transport === 'direct_api.github.com' ? `Direct GitHub conditional polling every ${stream.poll_interval_seconds}s` : stream.last_success_at ? 'Retained GitHub metadata · transport not recorded' : 'GitHub release metadata awaits its first refresh'}</span></div></div>
         <div><span>Open in recent window</span><strong>{release.counts.open}</strong></div>
         <div><span>Needs review</span><strong>{release.counts.needs_review}</strong></div>
         <div><span>Evidence confirmed</span><strong>{release.counts.ready}</strong></div>

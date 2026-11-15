@@ -1,6 +1,6 @@
 # DriftCI — local submission draft
 
-This is submission copy, not confirmation that a Junction platform entry is finalized. The verbatim challenge brief and platform submission status are not stored here.
+This is product copy, not confirmation of a finalized Junction platform entry. The verbatim official challenge brief, challenge identifier and authoritative platform submission state are not stored here.
 
 ## Name
 
@@ -8,73 +8,75 @@ This is submission copy, not confirmation that a Junction platform entry is fina
 
 ## Punchline
 
-**Live release evidence, from GitHub to the official web.**
+**From repository inventory to accountable releases.**
 
 ## Short description
 
-DriftCI connects live GitHub pull requests and CI to the official web pages around them. Context.dev retrieves official model lifecycle, pricing, SDK-release and status information. DriftCI records the source snapshots, maps relevant evidence to bounded PR diffs and repository code, and publishes every arrival to one durable live timeline.
+DriftCI turns a public repository into inspectable release and security evidence. It reads GitHub metadata, dependency-graph data and selected commit-pinned manifests/source—without an archive, clone or repository execution—then resolves dependency scope and checks exact supported versions against full OSV advisory records. Every package/version/manifest match keeps its source, scope and uncertainty through the incident UI and Markdown export.
 
-A reviewer can see the PR head, check state, source receipt and observation time together, then record a local ready or hold decision for that exact evidence set. Later code, CI or external changes expire the previous decision. The exported Markdown record preserves what was reviewed and the remaining coverage limits. OSV and CISA KEV support the adjacent vulnerability-response workflow without conflating installed versions with exploitability.
+Context.dev supplies official-web snapshots and scoped research, byte-preserving public GitHub metadata, and a genuine remotely scheduled hourly monitor. Its run and change records arrive beside GitHub PR heads, file diffs, reviews and CI in one durable event timeline. A named reviewer can record a local ready or hold decision for an exact head, external-evidence fingerprint and check-run state. DriftCI does not approve or merge GitHub PRs, deploy, or claim production safety.
 
 ## Challenge fit
 
-**The Web, Watched.** External official pages are operational inputs to a release, not static background reference material. Context.dev supplies live retrieval and scoped research; DriftCI turns that material into an inspectable, repository-specific release workflow.
+**The web becomes an operational input to the repository.** Official dependency releases, model lifecycle facts, pricing and provider-status pages are compared over time through Context.dev. The hosted Node security monitor executes remotely every hour and produces identifiable run records, including baselines and no-change results. Local reconciliation preserves those facts and filters monitor citations.
 
-GitHub events come from read-only API polling with ETags, or an optional separately authenticated webhook. They do not consume Context.dev credits. Context.dev remains the external-web intelligence layer; polling, snapshots, impact matching and review state are owned by DriftCI.
+This is not just retrieval. DriftCI connects source changes to exact repository evidence and an accountable local decision. A later head, check result or relevant official observation can make an earlier decision stale. Initial imports are baselines, and a failed or budget-skipped retrieval cannot masquerade as new evidence.
+
+## Demonstrated repository scale and security scope
+
+The public demo indexes **`nodejs/node`** at one immutable 56,696-file tree without downloading the project archive. It reads 1,600 text-file records, all 525 discovered manifest candidates, 67 native-version files and 753 dependency-graph package versions. Wider-source partiality, five invalid test fixtures, the oversized declaration file, unresolved ranges and native comparisons are explicit.
+
+The public OSV phase checked **5,581/5,581 supported exact comparisons**, retrieved **157/157 full advisory details**, and persisted **206 package/version/manifest matches covering 98 unique CVEs**. Of those occurrences, **204 are bundled and two are dependency-graph evidence; zero are application-scope matches**. Tooling, test, documentation and bundled dependency findings are useful inventory work, not assertions of production exploitation. Native declarations remain native evidence and are never sent to unrelated package registries.
+
+## Context.dev use that can be inspected
+
+- **Web Scrape:** up to six repository-relevant official pages per refresh, with bounded normalized snapshots, hashes and subsequent added/removed excerpts.
+- **Web Search:** one scoped query returning at most five host-validated research results when ordinary budget is available. A public budget skip is displayed as such rather than replaced with fixture results.
+- **Byte-preserving repository metadata:** validated public `api.github.com` JSON for repository/ref/tree/SBOM and bounded PR reads. Raw repository source is never sent to Context.dev. Direct GitHub fallback and transport failures remain visible.
+- **Remote monitoring:** active hourly monitor `mon_69e93e826b1f4d3993f6334286174703`, reused rather than duplicated. Its real baseline and scheduled no-change completions are visible with run IDs, timestamps and charged credits.
+- **Resource accounting:** six-hour ordinary caches, 6.2-second pacing, a 10,000-credit daily default and a 48-credit daily hosted-monitor reservation. Settled ordinary use, monitor commitments and in-flight reservations share the availability calculation.
+
+Context.dev monitor webhooks are not implemented. An optional HMAC-verified GitHub webhook is a different integration. Local 15-minute polling, remote hourly scheduling and local reconciliation are distinguished throughout the UI.
+
+## Release workflow and innovation
+
+**Repository history matters as well as the latest diff.** The targeted inventory includes old application code, unused/stale model references and nested/bundled dependencies, while current PR matching is restricted to added/context lines at an exact head. Index-only PR metadata stays empty and incomplete until bounded file/review/check evidence arrives.
+
+The evidence fingerprint binds relevant official observations, source fingerprints, mapped paths and CI state to one local release decision. A human review flag alone does not pretend to change an external fact. Real GitHub reviews remain separate from local DriftCI decisions. Every receipt carries exact head/evidence hashes, checks, source locations and residual coverage gaps.
+
+Security findings follow their ownership boundary. Only application manifests can receive direct deterministic vulnerability patches; bundled/test/dependency-graph findings are routed to the owning component/workflow. There is no speculative patch-generation UI.
+
+## Measured implementation
+
+- Durable SQLite-sequenced events, replayable SSE, independent GitHub freshness and pending evidence handling.
+- Exact PR heads, bounded changed files/reviews/checks, local named decisions and Markdown release records.
+- Targeted multi-ecosystem and native inventory with source/parser/OSV coverage reported separately.
+- Snapshot-keyed inventory reuse: approximately 3.0 seconds → 0.03 seconds for repeated processing of the retained Node snapshot; current issue overlays remain independent.
+- A completed fresh isolated `service.connect()` measurement of **80.384 seconds**. The approximate cold-under-60 target is unmet and this is disclosed, along with the 37.393-second metadata/selective-read phase and 36.485-second documentation phase.
+- An actual public cached incident reconciliation of **24.799 seconds**, with ordinary Context.dev request/credit counts unchanged. An earlier 54.896-second warm refresh is recorded separately.
+- **67 backend tests**, production TypeScript/Vite build, Python/JavaScript/shell checks, public HTTPS Release Room QA, public coverage/incident/monitor QA and seven isolated legacy browser workflows.
+- Real read-only public browser checks, including incident scope/manifest, native declarations, advisory counters, genuine remote-run identity and mobile layouts. The coverage workflow rejects browser mutations.
+
+See `EVIDENCE.md` for exact measurements, coverage gaps and which results are live, warm, cold, cached, partial or historical.
 
 ## Technologies
 
-Context.dev Web Scrape API, Context.dev Web Search API, GitHub REST/raw APIs, FastAPI, Python, SQLite, httpx, OSV, CISA Known Exploited Vulnerabilities, React, TypeScript, Vite.
-
-## Innovation
-
-Conventional dependency tools know manifests. Review tools know code. Search tools return links. DriftCI connects the release event to the external fact that may make its review stale.
-
-Its differentiator is **evidence freshness at an exact PR head**. The evidence fingerprint includes relevant external facts, source fingerprints, mapped paths and check-run state. An old approval can become observably outdated; a local release decision cannot silently survive a changed head or evidence set. A human review flag by itself does not masquerade as a new external fact.
-
-The product also makes resource discipline inspectable. Source reads are bounded, initial imports are baselines, web changes retain before/after excerpts, Context.dev usage has a credit ceiling, and GitHub retries stop during quota windows. Quiet polling does not repeatedly download a large diff just because its declared coverage limit remains partial.
-
-## Impact
-
-A PR can pass review just before a model retirement becomes relevant, a provider degrades, or an SDK/framework change affects its integration. DriftCI gives the person deciding whether to ship one place to inspect those facts, the current PR head and the CI state, then leave an accountable release record.
-
-A large real AI SDK monorepo demonstrates that useful signals can be obtained without cloning the repository, executing untrusted code or generating a speculative patch. Its model catalog identifiers are explicitly distinguished from production invocation.
-
-## Implementation
-
-- Recent public PR ingestion with exact heads, bounded file patches, reviews and check runs.
-- Durable, deduplicated event records and replayable server-sent events.
-- Optional HMAC-verified GitHub webhooks with delivery deduplication and downstream state reconciliation.
-- Repository-derived official deprecation, pricing, SDK/framework-release and provider-status watches through Context.dev.
-- Normalized status snapshots; ordinary page snapshots with bounded diffs, hashes and retrieval provenance.
-- Current-diff matching that excludes deleted files and removed lines.
-- Readiness states for missing coverage, pending/failing CI, stale external evidence and changed heads.
-- Named local ready/hold decisions bound to the head, evidence and check-run fingerprint, with Markdown exports.
-- Six-hour ordinary Context.dev caches, 6.2-second pacing and an 80-credit daily ceiling. Provider-status caching uses activity-scoped 300/45-second TTLs on the 90-second release poller.
-- GitHub ETags through a persistent SQLite store, rate-limit-aware retry backoff and no refetching unchanged bounded partial diffs.
-- A selective 120-file / 4 MB pinned-commit repository reader with explicit partial coverage.
-- OSV/CISA evidence, uncertainty labels, ordered response checklists, history and Markdown IR exports.
-- **48 backend tests**, production frontend build, public HTTPS Chromium workflows, independent browser SSE observation and mobile layout checks.
+Context.dev Web Scrape/Search and Monitors APIs; Context.dev byte transport for public GitHub metadata; GitHub REST, tree/dependency-graph and immutable raw APIs; FastAPI, Python, SQLite and httpx; OSV and CISA KEV; React, TypeScript, Vite and Inter.
 
 ## Live demo
 
-https://driftci.ajc.contexio.fi
+**https://driftci.ajc.contexio.fi**
 
-The public evaluation workspace currently connects the public **`vercel/ai`** repository. It is not a Vercel-operated console, and local QA decisions do not represent maintainer approvals. Dataset/source provenance and partial coverage are disclosed in the UI.
+The current public workspace belongs to Node.js upstream; its maintainers do not operate DriftCI. Local reviewer names and QA holds are not maintainer approvals. The small `junction/orders-ai` example and historical OpenAI retirement replay are explicitly separate from current live evidence.
 
-## Claims to verify when pitching
+## Claims that must remain qualified
 
-- Say that live API retrieval, source baselines and real GitHub observations are implemented. Cite the current source health timestamps.
-- Verify the present number of active PRs, complete detail snapshots and actual web observations immediately before recording. These vary as the public repository changes.
-- If no official page has changed recently, say so. Baselines and historical examples are not new live changes.
-- Describe GitHub checks as observed results. DriftCI did not run the application’s tests or prove deployment safety.
-- Keep local source identifiers distinct from production invocation, especially in SDK compatibility catalogs.
-
-## Claims to avoid
-
-- Do not claim remote Context.dev monitor resources, IDs, schedules, webhooks or monitor-side run history exist.
-- Do not describe the GitHub-only webhook as a Context.dev monitor integration.
-- Do not claim a live official-page change without a real later observation.
-- Do not call local ledger counters an account-reconciled billing statement.
-- Do not treat a selective repository index, check result or heuristic reachability clue as proof of safety or exploitability.
-- Do not say DriftCI automatically merges, deploys or generates/manages approvals on GitHub.
+- Hosted monitoring and real run reconciliation are implemented; Context.dev monitor webhooks are not.
+- Baselines and no-change runs are not new alerts. No genuine hosted-monitor change is claimed.
+- A match against full advisory ranges is not application reachability or deployment exploitability.
+- `5,581/5,581` covers supported exact registry comparisons, including unresolved/native review gaps visible beside it. It is not a claim that every repository file or component is safe.
+- All discovered manifests read is not the same as successful parsing or complete wider-source coverage.
+- GitHub CI is observed, not executed by DriftCI. Anonymous local reviewer names are not organizational authorization.
+- Public ordinary credits were spent before combined monitor accounting was introduced, temporarily exceeding the earlier 80-credit default. The ledger and monitor were preserved. On 2026-11-15 the operator raised the configured ceiling to 10,000 credits to permit bounded live web work in the public demo. Local accounting is not account-side billing reconciliation; the overcommitment warning remains available whenever commitments exceed the configured ceiling.
+- The cold 80.384-second result is not presented as cold-under-60 success.
+- Exact final platform submission/compliance must be verified against the official brief rather than inferred from this draft.

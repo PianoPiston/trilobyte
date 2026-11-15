@@ -19,7 +19,9 @@ from server.scanner import read_text_tree
 from server.seed import demo_records
 from server.remediation import RemediationError
 from server.release_analysis import release_payload
+from server.releases import ReleaseWatcher
 from server.service import DriftService
+from server.web import WebResult
 
 HEAD = "a" * 40
 NEXT = "b" * 40
@@ -88,6 +90,62 @@ def run_with_service(db: Database, settings: Settings, handler, operation):
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
             return await operation(DriftService(db, settings, http))
     return asyncio.run(run())
+
+
+def test_context_metadata_bypasses_a_direct_github_retry_window(tmp_path, github_db):
+    state = {"updated_at": "2026-11-15T03:00:00Z", "head": HEAD}
+    settings = make_settings(tmp_path, offline=False)
+    api = github_handler(state, [])
+
+    class Metadata:
+        def __init__(self):
+            self.calls = []
+
+        async def metadata_json(self, url, max_bytes=50_000_000, ttl=None):
+            self.calls.append((url, max_bytes, ttl))
+            with httpx.Client(transport=httpx.MockTransport(api)) as http:
+                response = http.get(url)
+            return WebResult(response.json(), "live", "2026-11-15T07:00:00Z")
+
+    github_db.set_meta("github_release_health", {
+        "retry_not_before_epoch": int(time.time()) + 3600,
+        "retry_after_seconds": 3600,
+    })
+
+    # Exercise the watcher directly so the fallback transport cannot contact GitHub.
+    async def use_context():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: (_ for _ in ()).throw(AssertionError("Direct fallback was not expected")))) as http:
+            metadata = Metadata()
+            watcher = ReleaseWatcher(github_db, settings, http, metadata)
+            result = await watcher.refresh()
+            assert result["prs"] == 1
+            assert metadata.calls
+            assert all(size == 2_000_000 and ttl == settings.status_cache_ttl_seconds for _url, size, ttl in metadata.calls)
+            health = watcher.health()
+            assert health["metadata_transport"] == "context.dev_bytes"
+            assert health["context_metadata_error"] is None
+            assert "retry_not_before_epoch" not in health
+            assert github_db.get_pull_request("pr-42")["detail_complete"] is True
+    asyncio.run(use_context())
+
+
+def test_pr_index_does_not_pretend_detail_is_complete(tmp_path, github_db):
+    class Metadata:
+        async def metadata_json(self, url, max_bytes=50_000_000, ttl=None):
+            assert max_bytes == 2_000_000
+            return WebResult([pull_request({"updated_at": "2026-11-15T03:00:00Z", "head": HEAD})], "live", ttl)
+
+    async def run():
+        watcher = ReleaseWatcher(github_db, make_settings(tmp_path), None, Metadata())
+        result = await watcher.refresh(detail_limit=0)
+        assert result["prs"] == 1
+        assert result["detail_pending"] == 1
+        assert result["requests"] == 1
+        saved = github_db.get_pull_request("pr-42")
+        assert saved["head_sha"] == HEAD
+        assert not saved["detail_complete"]
+        assert not saved["files"]
+    asyncio.run(run())
 
 
 def test_removed_or_deleted_model_configuration_does_not_trigger_branch_warning(tmp_path, github_db):

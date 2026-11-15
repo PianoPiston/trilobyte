@@ -114,9 +114,13 @@ export function SignalDrawer({ signalId, initialSignal, onClose, onSignalUpdated
             {signal.cve && <div><dt>CVE</dt><dd><code>{signal.cve}</code></dd></div>}
             {signal.cvss !== null && <div><dt>CVSS</dt><dd>{signal.cvss}</dd></div>}
             {signal.reachability && <div><dt>Repository reachability</dt><dd>{label(signal.reachability)}</dd></div>}
+            {signal.dependency_scope && <div><dt>Dependency scope</dt><dd>{label(signal.dependency_scope)}</dd></div>}
+            {signal.affected_package && <div><dt>Affected package</dt><dd><code>{signal.affected_package}{signal.affected_version ? `@${signal.affected_version}` : ''}</code></dd></div>}
+            {signal.manifest && <div className="signal-manifest-fact"><dt>Evidence manifest</dt><dd><code>{signal.manifest}</code></dd></div>}
           </dl>
 
           {signal.reachability && <p className="heuristic-caption">{signal.reachability_reason || 'Reachability describes selected-source references. Confirm invocation and exploitability against the deployed application.'}</p>}
+          {signal.kind === 'vulnerability' && <p className="scope-explanation">The package and installed version match an advisory range in the displayed dependency scope{signal.dependency_scope ? ` (${label(signal.dependency_scope)})` : ''}. Application execution and deployment impact require separate review.</p>}
 
           {signal.change && (
             <section className="drawer-section">

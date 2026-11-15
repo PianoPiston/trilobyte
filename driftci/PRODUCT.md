@@ -1,13 +1,13 @@
 # DriftCI product and API contract
 
-DriftCI connects live pull requests and CI to official web evidence. The Release Room is the primary workflow: recent GitHub changes, checks, reviews and Context.dev observations share one durable event timeline. Repository-aware review and vulnerability response remain available alongside it. Context.dev supplies normalized page content and scoped research. DriftCI owns repository selection, local polling, snapshots, change observations, evidence matching, review state and vulnerability response.
+DriftCI connects live pull requests and CI to official web evidence and a targeted repository dependency inventory. The Release Room is the primary workflow: recent GitHub changes, checks, reviews and Context.dev observations share one durable event timeline. Context.dev supplies normalized page content, scoped research, public GitHub metadata bytes and an actual repository-hosted hourly monitor. DriftCI owns repository selection, local source/advisory analysis, snapshots, evidence matching, monitor reconciliation and local review state.
 
 ## Product principles
 
 1. **A source needs memory.** The first successful retrieval establishes a baseline. A later normalized hash difference produces an observation; the initial page does not.
 2. **Evidence before action.** Each signal links primary source receipts and exact repository locations. Reviewers resolve non-CVE signals after external validation; CVEs resolve through their incident checklist.
 3. **Live, cached and replay are different.** Retrieval mode and source health remain visible. Source failures preserve last-known evidence.
-4. **Coverage and cost are product data.** Partial repository/package scans are warnings, and local Context.dev usage is visible beside its ceiling.
+4. **Coverage and cost are product data.** Source reads, manifest parsing, unresolved declarations, native comparisons and advisory-query completion are separate coverage signals. Local Context.dev usage, in-flight reservations and monitor commitments are visible beside the configured ceiling, including retained prior overcommitment.
 5. **Repository code stays local.** Only manifests and allowlisted source text are read. Code is not sent to Context.dev or executed.
 
 6. **Release decisions have exact scope.** A named reviewer records a local ready/hold decision for one PR head, evidence fingerprint and check-run snapshot. Human review flags alone do not change the external-evidence fingerprint. GitHub approvals, CI results and DriftCI decisions remain separate records.
@@ -18,9 +18,9 @@ DriftCI connects live pull requests and CI to official web evidence. The Release
 - **Mission Control:** Context.dev pulse, risk/decision metrics, ranked signals, source health, highest-impact dependencies and recent activity.
 - **Web Watch:** daily usage/credit ceiling, custom-watch form, observed-change diffs, inferred watchlist and official-domain research results.
 - **Change Inbox:** searchable/filterable deprecation, vulnerability, API, pricing and status signals. No patch-generation actions.
-- **Vulnerabilities:** active incidents, CVE history, reachability clues, ordered checklist and Markdown response export.
+- **Vulnerabilities:** active incidents, dependency scope, evidence manifest, CVE history, reachability uncertainty, ordered checklist and Markdown response export.
 - **Evidence:** source receipts connected to decisions and affected source files.
-- **Repository drawer:** pinned-commit source coverage, public GitHub connection, example restore and labelled historical replay.
+- **Repository drawer:** pinned-commit manifest/native/source coverage, parser and advisory-query gaps, public GitHub connection, example restore and labelled historical replay.
 
 ## Backend API
 
@@ -40,7 +40,12 @@ All endpoints are under `/api`. JSON API responses use `Cache-Control: no-cache`
       "credits": 11,
       "daily_queries": 7,
       "daily_credits": 9,
-      "daily_credit_limit": 80,
+      "daily_credit_limit": 10000,
+      "monitor_credits_today": 6,
+      "monitor_reserved_today": 42,
+      "monitor_spent_and_reserved": 48,
+      "ordinary_reserved_credits": 0,
+      "daily_available": 9943,
       "cache_ttl_seconds": 21600
     }
   },
@@ -60,6 +65,9 @@ All endpoints are under `/api`. JSON API responses use `Cache-Control: no-cache`
     "last_polled_at": "2026-11-15T04:22:17Z",
     "last_success_at": "2026-11-15T04:22:17Z",
     "last_error": null,
+    "metadata_transport": "context.dev_bytes",
+    "last_metadata_retrieved_at": "2026-11-15T04:22:17Z",
+    "context_metadata_error": null,
     "detail_pending": 0,
     "sse_path": "/api/events/stream",
     "status_cache_ttl_seconds": 300,
@@ -68,23 +76,24 @@ All endpoints are under `/api`. JSON API responses use `Cache-Control: no-cache`
 }
 ```
 
-The values above illustrate response shape rather than current billing. Counters are locally recorded, not remote account reconciliation. `watcher` describes DriftCI's ordinary web timer, not a Context.dev monitor resource. `release_stream` separately describes GitHub ingestion and activity-scoped status watches. Its last successful retrieval and last error remain visible when retained evidence is stale.
+The values above illustrate response shape rather than current billing. Counters are locally recorded, not remote account reconciliation. Monitor spent/reserved and in-flight ordinary reservations reduce remaining availability alongside settled ordinary usage; monitor creation uses the same calculation. `watcher` describes DriftCI's ordinary web timer, not a Context.dev monitor resource. `release_stream` separately describes GitHub ingestion and activity-scoped status watches. Its last successful retrieval and last error remain visible when retained evidence is stale.
 
 ### `GET /api/bootstrap`
 
 Returns:
 
-- `workspace`: repository identity, branch and optional selective-read coverage.
+- `workspace`: repository identity, branch and targeted manifest/native/source/parser coverage with metadata transport/fallback state.
+- `monitor`: the real remote monitor, schedule, latest/baseline state, run timing/credits and local reconciliation state when configured; null when unavailable.
 - `summary`: risk, active changes, affected dependencies, production models, watched sources and observed changes.
 - `release.pull_requests`: recent PRs with exact head SHA, bounded files/checks/reviews, matched external evidence and a fact-based evidence hash. Decisions are returned only when the current head/evidence hash matches. An expired decision is returned separately.
 - `release.events`: sequenced, deduplicated GitHub, web and local-decision records. Initial imports carry `baseline=true`. Publication/occurrence and local receipt timestamps are distinct.
-- `release.latest_seq` and `release.status`: the event cursor and independent GitHub freshness/transport state.
+- `release.latest_seq` and `release.status`: the event cursor and independent GitHub freshness/transport state. Repository connect is initially PR-index-only; index-only records carry empty file/review/check arrays and incomplete coverage flags until bounded detail is retrieved.
 - `signals`: complete decision objects ordered by state/severity.
-- `sources`: source health, category, baseline/change timestamps and at most 12 public observations per source. Internal markdown snapshots are omitted.
+- `sources`: source health, watch/category identity, baseline/change timestamps, up to 12 public observations and separate OSV batch/full-detail accounting. Internal markdown snapshots are omitted.
 - `changes`: flattened observations ordered newest first, each with optional `signal_id` and repository-matched terms.
 - `discoveries`: up to five official-host research results.
 - `research`: scoped query, retrieval timestamp and mode when available.
-- `dependencies`, `activity`, `incidents`, `history`, and local usage `metrics`.
+- `dependencies`, `activity`, `incidents`, `history`, and local usage `metrics`. Dependencies distinguish declaration, resolved version, exactness, scope, manifest and advisory support. Vulnerability findings and incidents preserve `dependency_scope` and `manifest`; advisory ranges do not establish execution or exploitability.
 
 ### Release ingestion and events
 
@@ -155,7 +164,7 @@ The evidence hash covers relevant observation timestamps and source fingerprints
 }
 ```
 
-Kinds: `deprecation`, `vulnerability`, `api`, `pricing`, `status`. States: `needs_action`, `acknowledged`, `monitoring`, `resolved`; older stored records may include `fix_ready`. Exact model lifecycle events use `deprecation`; generic page observations use the content/source classification.
+Kinds: `deprecation`, `vulnerability`, `api`, `pricing`, `status`, `security_update`. States: `needs_action`, `acknowledged`, `monitoring`, `resolved`; older stored records may include `fix_ready`. Exact model lifecycle events use `deprecation`; generic page observations use the content/source classification.
 
 ### Signal endpoints
 
@@ -165,7 +174,7 @@ Kinds: `deprecation`, `vulnerability`, `api`, `pricing`, `status`. States: `need
 
 ### Refresh and watches
 
-- `POST /api/scan` refreshes Context.dev documents/search and OSV/CISA with shared lock, cooldown and caches. Returns bootstrap.
+- `POST /api/scan` refreshes Context.dev documents/search, scoped OSV/CISA matches, the hosted-monitor record and PR status with shared locks/cooldowns/caches. Returns bootstrap. It uses the retained pinned repository snapshot; PR-detail freshness and repository-wide source coverage remain separate.
 - `POST /api/watches` with `{"url":"https://status.example.com/provider","title":"Provider status"}` adds a custom public HTTPS watch, retrieves its baseline through the same bounded document refresh and returns bootstrap. Invalid private/local URLs return 400 before entering the scan gate.
 - `DELETE /api/watches/{key}` removes the custom source and its associated web signals. Built-in watches cannot be deleted through this route.
 
@@ -173,9 +182,9 @@ Custom watch keys come from the source ID after removing its `src-` prefix.
 
 ### Repository connection
 
-`POST /api/repositories/connect` with `{"url":"https://github.com/owner/repo"}` reads selected production manifests/source files at a pinned commit and runs the normal scan. Defaults: 120 files, 4 MB total, 1 MB per file, 25-second source batch, 6-second per-file reads and a 90-second whole-connection deadline.
+`POST /api/repositories/connect` with `{"url":"https://github.com/owner/repo"}` reads GitHub structured metadata, dependency-graph/SBOM data, manifests, native declarations and selected source at an immutable commit, then performs the normal scoped advisory/web/release/monitor scan. Defaults: 1,600 records, 32 MB total, 2 MB per file, 40 source-read seconds, 16 concurrent file reads, 6-second per-file reads and a 90-second connection deadline. Archives, clones and repository execution are prohibited.
 
-`workspace.coverage` includes commit SHA, repository/candidate/read file counts, bytes, skipped/failed/timed-out files, source-read time and partial/complete state. Nested manifests keep separate dependency scopes. `DELETE /api/workspace` restores the example.
+`workspace.coverage` includes commit SHA, tree truncation, selected/read file counts, bytes, manifests/native files read, missing/parse-failed manifests, structured packages, skipped/failed/timed-out files, source-read time, metadata transport/fallback and independent wider-source completeness. Source and advisory-eligibility completion are different concepts. Nested manifests keep separate dependency scopes. `DELETE /api/workspace` restores the example.
 
 ### Incidents and exports
 
@@ -193,8 +202,13 @@ Custom watch keys come from the source ID after removing its `src-` prefix.
 - `POST https://api.context.dev/v1/web/search` runs at most one scoped query with five results and highlights enabled.
 - Ordinary cache TTL defaults to six hours for both methods; status sources use 300 seconds normally and 45 seconds during defined release activity, on the next 90-second release poll.
 - Request starts are paced at 6.2 seconds.
-- Scrape/search calls reserve 1/2 expected credits before a fresh request and stop at the configured daily ceiling.
+- Scrape/metadata/search calls reserve expected credits before a fresh request. Settled ordinary usage, monitor spent/reserved credits and in-flight ordinary reservations share the daily availability calculation; reservations are released in `finally` paths.
+- Hosted hourly monitoring is budgeted at 48 credits/day. Remote monitor/run/change APIs are reconciled explicitly. A baseline, failure, skip or no-change completion never becomes an advisory. Monitor text/citations cannot create automatic patches. Monitor webhooks are not implemented.
+- Public `api.github.com` JSON may use `formats.bytes` through the scrape transport. Base64/body-size/content-type/JSON/envelope validation is applied. No GitHub authorization or repository source content is sent to Context.dev.
+- Direct immutable raw source reads use `raw.githubusercontent.com` without GitHub authorization. OSV sends supported exact package/version tuples only; native declarations and unresolved ranges are retained as review gaps.
+- OSV `{id, modified}` descriptors are expanded to full advisory records before range matching. Failed/paginated detail retrieval leaves affected package queries pending. Full advisory details have independent caches.
+- Only application manifests may receive direct deterministic vulnerability patches; other scopes require their owning workflows.
 - Successful live responses record `credits_consumed` from `key_metadata`, with conservative fallback estimates.
 - Result pages must match the scoped official hostname. Text is sanitized and excerpts are bounded.
 - Built-in sources are fixed mappings derived from model/package inventory. Custom pages require public HTTPS URLs.
-- Local polling creates no Context.dev monitor resource or webhook and makes no claim that one exists.
+- Local polling and Context.dev's remote scheduler are distinct. The optional HMAC GitHub webhook is separate and sends no release command to GitHub.

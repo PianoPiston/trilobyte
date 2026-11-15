@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import re
+import time
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -14,11 +16,12 @@ from .contextdev import ContextDev, DocumentSpec, custom_dict, custom_spec, docu
 from .db import Database
 from .github import GitHubError, GitHubPullRequests
 from .intel import VulnerabilityIntel, advisory_receipts, cve_id, kev_entries, kev_receipt, score_and_severity
+from .monitors import ContextMonitors, monitor_signal, repository_tag
 from .release_analysis import observed_at, release_payload
 from .releases import ReleaseError, ReleaseWatcher
 from .remediation import RemediationError, generate, patch_text
 from .repository import RepositoryError, SourceLimits, read_public
-from .scanner import Dependency, dependency_evidence, inventory, middleware_evidence, model_evidence, production_models
+from .scanner import Dependency, advisory_versions, dependency_evidence, inventory, middleware_evidence, model_evidence, parse_inventory, production_models
 from .seed import actions, deprecation_receipt, deprecation_signal
 from .util import parse_iso, safe_excerpt, stable_id, utcnow
 from .versioning import fixed_version
@@ -62,9 +65,11 @@ class DriftService:
         self.db = db
         self.settings = settings
         self.http = http
-        self.context = ContextDev(db, CachedWebClient(db, http, settings.context_min_interval), settings.contextdev_api_key, settings.context_cache_ttl, settings.context_daily_credit_limit)
-        self.intel = VulnerabilityIntel(db, CachedWebClient(db, http, .2), settings.osv_cache_ttl, settings.kev_cache_ttl)
-        self.releases = ReleaseWatcher(db, settings, http)
+        self.intel = VulnerabilityIntel(db, CachedWebClient(db, http, .02), settings.osv_cache_ttl, settings.kev_cache_ttl)
+        self.monitors = ContextMonitors(db, http, None if settings.offline else settings.contextdev_api_key, settings.context_daily_credit_limit)
+        self.context = ContextDev(db, CachedWebClient(db, http, settings.context_min_interval), settings.contextdev_api_key, settings.context_cache_ttl, settings.context_daily_credit_limit, monitor_budget=self.monitors.budget)
+        self.monitors.ordinary_usage = self.context.usage
+        self.releases = ReleaseWatcher(db, settings, http, self.context if self.context.api_key and not settings.offline else None)
 
     def health(self) -> dict:
         sources = self.db.list_sources()
@@ -80,6 +85,7 @@ class DriftService:
             "context_dev": {"configured": bool(self.settings.contextdev_api_key), "mode": "live" if self.settings.contextdev_api_key and not self.settings.offline else "offline" if self.settings.offline else "unconfigured", "usage": self.context.usage()},
             "github": {"configured": bool(self.settings.github_token), "mode": "pull requests available" if self.settings.github_token else "read-only"},
             "last_scan_at": self.db.get_meta("last_scan_at"), "source_counts": counts,
+            "monitor": self.db.get_meta("context_monitor_state", {"configured": self.monitors.enabled, "mode": "unconfigured" if not self.monitors.enabled else "pending"}),
             "release_stream": self.releases.health(),
         }
 
@@ -137,6 +143,7 @@ class DriftService:
         release = release_payload(self.db, files, signals, self.releases.health())
         return {
             "workspace": workspace,
+            "monitor": self.db.get_meta("context_monitor_state", {"configured": self.monitors.enabled, "mode": "unconfigured" if not self.monitors.enabled else "pending"}),
             "summary": {
                 "risk_score": min(100, risk_score),
                 "active_changes": sum(signal["state"] in ACTIVE_STATES for signal in signals),
@@ -210,9 +217,9 @@ class DriftService:
         self.db.add_activity("incident", f"{incident['cve']}: {action['label']}", f"Checklist action marked {status}")
         return incident
 
-    def add_external_event(self, signal: dict) -> None:
+    def add_external_event(self, signal: dict, related: list[dict] | None = None) -> None:
         """Record a newly observed external fact and its currently mapped PRs."""
-        related = release_payload(self.db, self.db.files(), self.db.list_signals(), self.releases.health())["pull_requests"]
+        related = related if related is not None else release_payload(self.db, self.db.files(), self.db.list_signals(), self.releases.health())["pull_requests"]
         numbers = [pr["number"] for pr in related if any(item["id"] == signal["id"] for item in pr["external_evidence"]) and pr["state"] == "open"]
         receipt = (signal.get("source_receipts") or [{}])[0]
         self.db.add_release_event({
@@ -249,17 +256,17 @@ class DriftService:
                 break
         await self._scan_documents(files, specs, research=False, hot=hot)
 
-    async def refresh_releases(self, pr_number: int | None = None, include_status: bool = True) -> dict:
+    async def refresh_releases(self, pr_number: int | None = None, include_status: bool = True, detail_limit: int | None = None) -> dict:
         """Refresh PR events independently of expensive web and vulnerability scans."""
         if self.settings.offline:
             return self.bootstrap()
         source = self.db.get_source("src-github-releases") or {
             "id": "src-github-releases", "publisher": "GitHub", "title": "Release event stream",
-            "url": f"https://github.com/{self.db.workspace().get('repository', '')}",
+            "url": self.db.workspace().get("repository") or "https://github.com/",
         }
         now = utcnow()
         try:
-            result = await self.releases.refresh(pr_number)
+            result = await self.releases.refresh(pr_number, detail_limit)
         except (ReleaseError, RepositoryError) as exc:
             health = self.db.get_meta("github_release_health", {})
             health["last_polled_at"] = now
@@ -267,7 +274,7 @@ class DriftService:
             if isinstance(exc, ReleaseError) and exc.retry_after:
                 health["retry_after_seconds"] = exc.retry_after
             self.db.set_meta("github_release_health", health)
-            source.update({"status": "error", "last_attempt_at": now, "error": health["last_error"], "watch": False})
+            source.update({"url": self.db.workspace().get("repository") or source.get("url"), "status": "error", "last_attempt_at": now, "error": health["last_error"], "watch": False})
             self.db.save_source(source)
         else:
             health = self.db.get_meta("github_release_health", {})
@@ -378,6 +385,8 @@ class DriftService:
             raise LookupError("Signal not found")
         if signal["state"] == "resolved":
             raise RemediationError("Resolved signals do not need a new remediation")
+        if signal.get("monitor_id"):
+            raise RemediationError("Monitor-derived results require a verified affected version and documented upgrade path; no automatic patch is generated from monitor text")
         remediation = generate(self.db.files(), signal, bool(self.settings.github_token))
         existing = self.db.get_remediation(remediation["id"])
         if existing:
@@ -420,6 +429,8 @@ class DriftService:
             f"- **Severity / CVSS:** {incident['severity']} / {incident.get('cvss') if incident.get('cvss') is not None else 'not supplied'}",
             f"- **CISA KEV listed:** {'yes' if incident.get('kev') else 'no'}",
             f"- **Package:** `{incident['affected_package']}@{incident['affected_version']}`",
+            f"- **Dependency scope:** {incident.get('dependency_scope') or 'not recorded'}",
+            f"- **Evidence manifest:** `{incident.get('manifest') or 'not recorded'}`",
             f"- **Fixed version identified:** `{incident.get('fixed_version') or 'not supplied'}`",
             f"- **Reachability clue:** {incident.get('reachability', 'unknown')}",
             f"- **First seen:** {incident['first_seen_at']}",
@@ -444,7 +455,7 @@ class DriftService:
             lines.append(f"- [{receipt.get('publisher')}: {receipt.get('title')}]({receipt.get('url')}) — retrieved {receipt.get('retrieved_at')} · {receipt.get('mode')}")
             if receipt.get("quote"):
                 lines.extend(["", "> " + str(receipt["quote"]).replace("\n", "\n> "), ""])
-        lines.extend(["## Remaining validation", "", "Complete application-owned build, security and deployment checks before relying on a patch or closing residual risk. DriftCI did not execute repository code.", ""])
+        lines.extend(["## Remaining validation", "", "Complete the owning workflow’s build, security and deployment checks before relying on a patch or closing residual risk. DriftCI did not execute repository code.", ""])
         return "\n".join(lines)
 
     async def open_pr(self, ident: str) -> dict:
@@ -509,21 +520,39 @@ class DriftService:
         return self.bootstrap()
 
     async def connect(self, url: str) -> dict:
-        limits = SourceLimits(self.settings.github_file_limit, self.settings.github_byte_limit, self.settings.github_file_byte_limit)
-        workspace, files = await read_public(self.http, url, self.settings.github_token, limits)
+        limits = SourceLimits(
+            max_files=self.settings.github_file_limit, max_bytes=self.settings.github_byte_limit,
+            max_seconds=self.settings.github_source_seconds, max_file_bytes=self.settings.github_file_byte_limit,
+            concurrency=self.settings.github_read_concurrency,
+        )
+        workspace, _text_files = await read_public(self.http, url, self.settings.github_token, limits, self.db, self.context if self.settings.contextdev_api_key else None)
+        file_records = workspace.pop("_file_records")
+        if self.monitors.enabled:
+            await self.monitors.pause_unrelated(workspace["name"].split("/", 1)[1], workspace["name"].split("/", 1)[0])
+        structured = workspace.pop("_structured_packages", [])
+        if structured:
+            file_records.append({
+                "path": "::github-dependency-graph::", "kind": "manifest", "content": "",
+                "structured_metadata": True, "scope": "structured_metadata", "manifest": {"packages": structured},
+            })
+        files = {record["path"]: {key: value for key, value in record.items() if key != "path"} for record in file_records}
+        workspace["coverage"]["dependency_parse_errors"] = parse_inventory(files)[1]
+        workspace["coverage"]["dependency_manifest_complete"] = workspace["coverage"]["dependency_manifest_complete"] and not workspace["coverage"]["dependency_parse_errors"]
+        workspace["coverage"]["complete"] = workspace["coverage"]["dependency_manifest_complete"]
         self.db.replace_workspace(workspace, files)
-        scope = "full eligible-file coverage" if workspace["coverage"]["complete"] else "bounded/partial coverage; inspect scan coverage before concluding absence"
-        self.db.add_activity("repository", "Public repository selectively indexed", f"{workspace['repository']}@{(workspace['coverage']['commit_sha'])[:12]} · {len(files)} text files, {workspace['coverage']['bytes_read']} bytes · {scope}; no archive or repository code executed")
-        await self.scan()
+        self.db.add_activity("repository", "Repository dependency inventory refreshed", f"{workspace['repository']}@{workspace['commit_sha'][:12]} · {workspace['coverage']['manifest_files_read']} manifests, {len(structured)} structured package versions, {workspace['coverage']['native_version_files_read']} native version files · targeted reads, no archive or code execution")
+        # Start with the lightweight PR index. The established background poll
+        # and explicit refresh action retrieve the bounded per-PR evidence.
+        await self.scan(release_detail_limit=0)
         return self.bootstrap()
 
-    async def scan(self) -> dict:
+    async def scan(self, release_detail_limit: int | None = None) -> dict:
         files = self.db.files()
-        dependencies = [Dependency(**{key: item[key] for key in ("name", "ecosystem", "version", "declared", "kind", "manifest", "exact")}) for item in inventory(files) if item["exact"]]
+        dependencies = [Dependency(**{key: value for key, value in item.items() if key in Dependency.__dataclass_fields__}) for item in inventory(files) if item["kind"] != "project"]
         if self.settings.offline:
             self.db.add_activity("scan", "Offline inventory refreshed", f"{len(files)} files · {len(dependencies)} exact dependency versions; network sources were not queried")
         else:
-            document_results, vulnerability_count, _release = await asyncio.gather(self._scan_documents(files), self._scan_vulnerabilities(files, dependencies), self.refresh_releases(include_status=False))
+            document_results, vulnerability_count, _release, _monitor = await asyncio.gather(self._scan_documents(files), self._scan_vulnerabilities(files, dependencies), self.refresh_releases(include_status=False, detail_limit=release_detail_limit), self._scan_monitor() if not self.settings.offline else asyncio.sleep(0))
             warnings = sum(bool(source.get("error")) or source.get("status") in {"error", "unconfigured", "partial"} for source in self.db.list_sources())
             decisions = sum(signal["state"] in ACTIVE_STATES for signal in self.db.list_signals())
             self.db.add_activity("scan", "Source refresh completed", f"{document_results} model signals · {vulnerability_count} package-advisory matches · {decisions} decisions required · {warnings} source warnings")
@@ -592,9 +621,107 @@ class DriftService:
         self.db.save_signal(signal)
         return signal
 
+    async def _scan_monitor(self) -> None:
+        """Ingest real remote run/change records. Never turn a baseline or HTTP read into an event."""
+        workspace = self.db.workspace()
+        if workspace.get("source") != "github":
+            if self.monitors.enabled:
+                try:
+                    await self.monitors.pause_unrelated("orders-ai", "example")
+                except (httpx.HTTPError, ValueError):
+                    pass
+            self.db.set_meta("context_monitor_state", {"configured": self.monitors.enabled, "mode": "not_monitored", "note": "The controlled example is not a repository-security watch. Repository-hosted monitors are reconciled separately."})
+            return
+        owner, repository = workspace["id"].split("/", 1)
+        old = self.db.get_meta("context_monitor_state", {})
+        source_id = "src-context-monitors"
+        source = self.db.get_source(source_id) or {"id": source_id, "publisher": "Context.dev", "title": "Remote security & dependency monitor", "url": "https://docs.context.dev/monitors/overview"}
+        try:
+            state, changes = await self.monitors.sync(repository, owner, enable=True)
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            state = {**old, "configured": self.monitors.enabled, "mode": "remote_scheduled" if old.get("id") else "unavailable", "error": f"Context.dev monitor reconciliation failed: {type(exc).__name__}. Retained run data may be stale.", "last_sync_attempt_at": utcnow()}
+            changes = []
+            self.db.save_source({**source, "status": "error", "last_checked_at": utcnow(), "error": state["error"], "mode": "cached"})
+            self.db.set_meta("context_monitor_state", state)
+            return
+        if not state:
+            budget = self.monitors.budget()
+            state = {"configured": self.monitors.enabled, "mode": "unavailable", "error": f"No monitor was created within the daily reservation. Hosted hourly monitoring requires 48 credits/day; reserved {budget['reserved']}, already settled {budget['spent']}."}
+        self.db.set_meta("context_monitor_state", state)
+        observations = []
+        allowed = lambda url: isinstance(url, str) and url.startswith("https://") and (
+            owner.lower() == "nodejs" and ((urlparse(url).hostname or "").lower() in {"nodejs.org", "www.nodejs.org"} or (urlparse(url).hostname or "").lower().endswith(".nodejs.org"))
+            or owner.lower() == "vercel" and (urlparse(url).hostname or "").lower() in {"www.vercel.com", "vercel.com", "ai-sdk.dev"}
+            or owner.lower() not in {"nodejs", "vercel"} and (urlparse(url).hostname or "").lower() in {"github.com", "www.github.com"} and urlparse(url).path.lower().startswith(f"/{owner.lower()}/{repository.lower()}/")
+        )
+        for change in sorted(changes, key=lambda item: item.get("detected_at", "")):
+            change["matched_urls"] = [url for url in change.get("matched_urls", []) if allowed(url)][:20]
+            if change.get("url") and not allowed(change["url"]):
+                change["url"] = None
+            signal = monitor_signal(change)
+            text = " ".join([signal["title"], signal["summary"], signal["evidence"]])
+            packages = []
+            for item in inventory(self.db.files()):
+                if item["ecosystem"] != "Native" and item["kind"] not in {"ai_sdk", "framework"} and item["scope"] != "bundled":
+                    continue
+                if len(item["name"]) < 4 or item["name"].lower() in {"node", "http", "https", "http2", "crypto", "version"}:
+                    continue
+                if re.search(rf"(?<![\w@-]){re.escape(item['name'])}(?![\w-])", text, re.I):
+                    packages.append(item)
+            evidence = []
+            for item in packages[:12]:
+                dependency = Dependency(**{key: value for key, value in item.items() if key in Dependency.__dataclass_fields__})
+                evidence.extend(dependency_evidence(self.db.files(), dependency))
+            cves = sorted(set(re.findall(r"CVE-\d{4}-\d{4,7}", text)))
+            receipts = [{"publisher": "Context.dev", "title": f"Monitor {change.get('monitor_id')} · run {change.get('run_id')}", "url": url, "retrieved_at": change.get("detected_at"), "mode": "live", "quote": safe_excerpt(signal["summary"], 700)} for url in signal["urls"]]
+            kev_cves = set((self.db.get_source("src-cisa") or {}).get("_kev_cves", []))
+            for cve in cves or [None]:
+                record = dict(signal)
+                if cve:
+                    record["id"] = f"{signal['id']}-{cve}"
+                    record["title"] = f"{cve}: {signal['title']}"
+                record.update({
+                    "kind": "vulnerability" if cve else "security_update", "provider": "Context.dev monitor",
+                    "cve": cve, "kev": cve in kev_cves if cve else False, "cvss": None,
+                    "affected_assets": [item["name"] for item in packages[:12]] or [workspace["name"]],
+                    "evidence": evidence[:12], "source_receipts": receipts,
+                    "reachability": "unknown", "reachability_reason": "A hosted web monitor observed a new indexed source result. Native/package-name co-occurrence and semantic detection require human verification; neither proves exploitability.",
+                    "recommendation": "Open the cited source, compare the documented affected versions with the pinned repository inventory, and record a human decision. No automatic patch is generated from monitor text.",
+                    "watch_id": source_id, "observed_at": change.get("detected_at"),
+                    "affected_package": packages[0]["name"] if len(packages) == 1 else None,
+                    "ecosystem": packages[0]["ecosystem"] if len(packages) == 1 else None,
+                    "affected_version": None,
+                    "dependency_scope": packages[0]["scope"] if len(packages) == 1 else None,
+                })
+                if not self.db.get_signal(record["id"]):
+                    self.db.save_signal(record)
+                    self.add_external_event(record)
+            observations.append({"id": change["id"], "observed_at": change.get("detected_at"), "title": signal["title"], "signal_id": signal["id"], "added": [change.get("summary", "")], "removed": [], "added_lines": 1, "removed_lines": 0, "matched_terms": [item["name"] for item in packages[:12]], "mode": "live", "urls": signal["urls"]})
+        previous = {item.get("id") for item in observations}
+        retained = [item for item in source.get("observations", []) if item.get("id") not in previous]
+        monitor_receipts = []
+        run = state.get("last_run") or {}
+        if run:
+            monitor_receipts = [{"url": "https://docs.context.dev/monitors/runs-and-changes", "title": f"Remote run {run.get('id')}", "mode": "live", "retrieved_at": state.get("last_polled_at"), "metadata": {"run_type": run.get("run_type"), "baseline_created": run.get("baseline_created"), "credits_charged": run.get("credits_charged"), "change_detected": run.get("change_detected")}}]
+        self.db.save_source({
+            **source, "status": "live" if state.get("id") and run.get("status") == "completed" else "partial" if run.get("status") in {"failed", "skipped", "running", "pending", "queued"} else "error" if state.get("error") else "unconfigured",
+            "last_checked_at": state.get("last_polled_at"), "event_count": len(observations), "mode": "live",
+            "monitor_id": state.get("id"), "monitor": state, "observations": (observations + retained)[:24], "receipts": monitor_receipts,
+            "error": state.get("error") or (f"Remote run {run.get('id')} was {run.get('status')}: {run.get('error') or run.get('skip_reason') or 'No change evaluation completed'}" if run.get("status") in {"failed", "skipped"} else None),
+        })
+
     async def _scan_research(self, files: dict[str, str], specs: list[DocumentSpec]) -> None:
         query = research_query(files, specs)
+        repository_research = False
+        if not query and self.db.workspace().get("source") == "github":
+            owner, repo = self.db.workspace()["id"].split("/", 1)
+            query = f'site:github.com/{owner}/{repo} security OR vulnerability OR deprecated OR SDK OR "CVE-" OR "gpt-" OR "claude-"'
+            repository_research = True
         if not query:
+            return
+        if self.context.usage()["daily_available"] < 2:
+            source = self.db.get_source("src-context-search") or {"id": "src-context-search", "publisher": "Context.dev", "title": "Repository research", "url": "https://docs.context.dev/api-reference/web/search"}
+            self.db.save_source({**source, "query": query, "status": "error", "error": "Optional repository research skipped: the daily scrape/search budget is reserved for active remote monitors.", "scope": "indexed_web_results"})
             return
         result = await self.context.search(query)
         old = self.db.get_source("src-context-search") or {}
@@ -622,16 +749,24 @@ class DriftService:
             official_host = query.split("site:", 1)[1].split()[0].split("/", 1)[0]
             if urlparse(url).hostname != official_host:
                 continue
+            if repository_research:
+                owner, repo = self.db.workspace()["id"].split("/", 1)
+                if not urlparse(url).path.lower().startswith(f"/{owner.lower()}/{repo.lower()}/"):
+                    continue
             haystack = f"{title} {summary}".lower()
             rows.append({
                 "id": stable_id("discovery", url), "title": title, "url": url, "summary": summary,
                 "published_at": item.get("publishedDate") if isinstance(item.get("publishedDate"), str) else None,
                 "retrieved_at": result.retrieved_at, "mode": result.mode,
                 "matched_terms": [term for term in terms if term and term in haystack][:6],
+                "scope": "indexed_web_reference" if repository_research else "official_documentation",
+                "certainty": "Search-index snippet; verify against the pinned commit before treating this as a current code reference." if repository_research else "Official search snippet; primary source remains authoritative.",
             })
         source.update({
             "status": result.mode, "last_checked_at": result.retrieved_at, "event_count": len(rows),
             "mode": result.mode, "error": None, "results": rows,
+            "scope": "repository_web_search" if repository_research else "official_web_research",
+            "title": "Repository web research" if repository_research else "Scoped official-web research",
         })
         self.db.save_source(source)
 
@@ -712,36 +847,20 @@ class DriftService:
         return matched
 
     async def _scan_vulnerabilities(self, files: dict[str, str], dependencies: list[Dependency]) -> int:
-        if not dependencies:
+        if not dependencies and not self.db.get_source("src-osv"):
             return 0
         had_baseline = bool(self.db.get_meta("vulnerability_baseline_at"))
-        dependency_priority = {"framework": 0, "ai_sdk": 1, "ui": 2}
-        ordered = sorted(dependencies, key=lambda item: (item.manifest.count("/") > 0, dependency_priority.get(item.kind, 3), item.manifest, item.name))
-        limit = self.settings.vulnerability_package_limit
-        packages = ordered[:limit] if limit > 0 else ordered
-        packages_pending = max(0, len(ordered) - len(packages))
-        semaphore = asyncio.Semaphore(4)
-
-        async def query_package(dependency: Dependency):
-            async with semaphore:
-                return await self.intel.query_package(dependency)
-
-        tasks = [asyncio.create_task(query_package(dependency)) for dependency in packages]
-        try:
-            done, pending = await asyncio.wait(tasks, timeout=self.settings.osv_batch_timeout_seconds)
-        finally:
-            unfinished = [task for task in tasks if not task.done()]
-            for task in unfinished:
-                task.cancel()
-            if unfinished:
-                await asyncio.gather(*unfinished, return_exceptions=True)
-        package_timeouts = len(pending)
-        results = [task.result() for task in sorted(done, key=tasks.index)]
+        query = await self.intel.query_batch(
+            dependencies, limit=self.settings.vulnerability_package_limit,
+            deadline=time.monotonic() + self.settings.osv_batch_timeout_seconds, concurrency=6,
+        )
+        results = query["records"]
         kev_result = await self.intel.kev()
         known_exploited = kev_entries(kev_result)
         matches = 0
         errors = []
         live_retrievals = []
+        observed = []
         for package_result in results:
             if package_result.result.error:
                 errors.append(f"{package_result.dependency.name}: {package_result.result.error}")
@@ -758,7 +877,7 @@ class DriftService:
                     and existing.get("affected_version") == dependency.version
                     and existing.get("manifest") in {None, dependency.manifest}
                 )
-                ident = base_id if not existing or same_scope else f"{base_id}-{_slug(dependency.ecosystem)}-{_slug(dependency.name)}-{_slug(dependency.manifest)}"
+                ident = base_id if not existing or same_scope else f"{base_id}-{_slug(dependency.ecosystem)}-{_slug(dependency.name)}-{_slug(dependency.manifest)}-{_slug(dependency.version)}"
                 existing = self.db.get_signal(ident) or {}
                 score, severity = score_and_severity(advisory)
                 is_kev = cve in known_exploited
@@ -782,7 +901,7 @@ class DriftService:
                     "evidence": evidence, "source_receipts": receipts, "remediation_id": existing.get("remediation_id"),
                     "created_at": existing.get("created_at") or advisory.get("published") or utcnow(),
                     "affected_package": dependency.name, "ecosystem": dependency.ecosystem, "affected_version": dependency.version,
-                    "manifest": dependency.manifest, "aliases": advisory.get("aliases") or [],
+                    "dependency_scope": dependency.scope, "manifest": dependency.manifest, "aliases": advisory.get("aliases") or [],
                 }
                 if known_exploited.get(cve):
                     signal["kev_due_date"] = known_exploited[cve].get("dueDate")
@@ -791,7 +910,7 @@ class DriftService:
                 new_signal = not existing
                 self.db.save_signal(signal)
                 if new_signal and had_baseline:
-                    self.add_external_event(signal)
+                    observed.append(signal)
                 incident_id = "inc-" + ident[4:]
                 previous = self.db.get_incident(incident_id) or {}
                 old_actions = previous.get("actions") or actions(fixed or "an unaffected release")
@@ -803,21 +922,35 @@ class DriftService:
                     "affected_package": dependency.name, "affected_version": dependency.version, "fixed_version": fixed,
                     "reachability": signal_reachability, "reachability_reason": signal["reachability_reason"], "summary": summary,
                     "affected_files": middleware or evidence, "source_receipts": receipts, "actions": old_actions, "signal_id": ident,
+                    "dependency_scope": dependency.scope, "manifest": dependency.manifest,
                 }
                 self.db.save_incident(incident)
                 matches += 1
-        source = self.db.get_source("src-osv") or {"id": "src-osv", "publisher": "OSV", "title": "Open vulnerability intelligence", "url": "https://osv.dev"}
-        any_live = any(result.result.mode == "live" and not result.result.error for result in results)
+        source = self.db.get_source("src-osv") or {"id": "src-osv", "publisher": "OSV", "title": "Batched open-source vulnerability queries", "url": "https://osv.dev"}
+        any_live = query["live_batches"] > 0
         scope_warnings = []
-        if packages_pending:
-            scope_warnings.append(f"{packages_pending} additional inventoried packages were not queried within the package limit")
-        if package_timeouts:
-            scope_warnings.append(f"{package_timeouts} package queries timed out; absent advisories are not evidence of safety")
-        status = "error" if errors else "partial" if packages_pending or package_timeouts else "live" if any_live else "cached"
-        source.update({"status": status, "last_checked_at": max((item for item in live_retrievals if item), default=source.get("last_checked_at")), "event_count": matches, "mode": "live" if any_live else source.get("mode", "cached"), "error": safe_excerpt("; ".join(errors + scope_warnings), 360) if errors or scope_warnings else None, "packages_total": len(ordered), "packages_checked": len(results), "packages_pending": packages_pending + package_timeouts})
+        if query["packages_pending"]:
+            scope_warnings.append(f"{query['packages_pending']} supported package queries remain pending after the limit or deadline; unchecked packages are not evidence of safety")
+        if query["packages_unresolved"]:
+            scope_warnings.append(f"{query['packages_unresolved']} declaration(s) did not resolve to an exact version")
+        if query["packages_unsupported"]:
+            scope_warnings.append(f"{query['packages_unsupported']} native/project/unsupported-ecosystem comparison(s) need platform-specific verification and were not sent to an unrelated registry")
+        if query["error"]:
+            scope_warnings.append(query["error"])
+        status = "partial" if query["packages_pending"] or query["packages_unsupported"] or query["error"] else "live" if any_live else "cached"
+        source.update({
+            "status": status, "last_checked_at": max((item for item in live_retrievals if item), default=source.get("last_checked_at")),
+            "event_count": matches, "mode": "live" if any_live else source.get("mode", "cached"),
+            "error": safe_excerpt("; ".join(errors + scope_warnings), 600) if errors or scope_warnings else None,
+            **{key: value for key, value in query.items() if key not in {"records", "error"}},
+        })
         self.db.save_source(source)
         cisa = self.db.get_source("src-cisa") or {"id": "src-cisa", "publisher": "CISA", "title": "Known Exploited Vulnerabilities", "url": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog"}
-        cisa.update({"status": "error" if kev_result.error else kev_result.mode, "last_checked_at": kev_result.retrieved_at or cisa.get("last_checked_at"), "event_count": sum(cve_id(advisory) in known_exploited for result in results for advisory in result.advisories), "mode": kev_result.mode if not kev_result.error else cisa.get("mode", "cached"), "error": safe_excerpt(kev_result.error, 240) if kev_result.error else None})
+        cisa.update({"status": "error" if kev_result.error else kev_result.mode, "last_checked_at": kev_result.retrieved_at or cisa.get("last_checked_at"), "event_count": sum(cve_id(advisory) in known_exploited for result in results for advisory in result.advisories), "mode": kev_result.mode if not kev_result.error else cisa.get("mode", "cached"), "error": safe_excerpt(kev_result.error, 240) if kev_result.error else None, "_kev_cves": sorted(known_exploited) if not kev_result.error else cisa.get("_kev_cves", [])})
         self.db.save_source(cisa)
         self.db.set_meta("vulnerability_baseline_at", self.db.get_meta("vulnerability_baseline_at") or utcnow())
+        if observed:
+            related = release_payload(self.db, files, self.db.list_signals(), self.releases.health())["pull_requests"]
+            for signal in observed:
+                self.add_external_event(signal, related)
         return matches

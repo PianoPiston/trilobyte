@@ -2,18 +2,18 @@
 
 **Public demo:** https://driftci.ajc.contexio.fi
 
-The public workspace connects **`vercel/ai`**, a real AI SDK monorepo. It reads public GitHub metadata and a selective 120-file source index. DriftCI is not a Vercel-operated approval system, and identifier matches in SDK catalogs do not establish production model invocation.
+The public workspace connects **`nodejs/node`** at a pinned commit. It reads GitHub metadata, dependency-graph records and a targeted 1,600-file source index without an archive, clone or repository execution. DriftCI is not a Node.js-operated approval system. Its 206 scoped advisory matches are package/version/manifest evidence, mostly in bundled tooling, not 206 production exploits. Native declarations and unresolved/source/parser gaps remain visible.
 
 ## The five-minute tour
 
 1. **Start in Release Room.** Show recent pull requests, exact head commits, GitHub checks and the independent event-stream connection. Select a PR whose file/check coverage is complete.
 2. **Inspect the release evidence.** Open **Inspect release**. The drawer contains the exact head, evidence hash, current files, checks, remote reviews and any matching external evidence. GitHub approvals and DriftCI local decisions are not the same thing.
-3. **Go to Web Watch.** Show the repository-derived official sources, persistent baselines, local Context.dev credit ceiling and scoped research. Ordinary pages use a six-hour cache; provider status watches accelerate only during defined release activity.
-4. **Inspect source-to-code evidence.** In Change Inbox or Workspace, inspect a model lifecycle or vulnerability record. Follow the primary receipt and code locations. Explain the difference between a source identifier, a supported SDK API definition and a runtime invocation.
+3. **Go to Web Watch.** Show repository-derived official sources, persistent baselines and the actual Context.dev remote monitor, including monitor/run IDs, hourly schedule, next run and completed no-change status. Explain the difference between the remote scheduler, local reconciliation and the app's 15-minute ordinary polling. The committed-budget card explains the retained 60 ordinary + 48 monitor commitments. Optional Node research was budget-skipped and has no retrieved results; show that explicit state rather than inventing results. Ordinary pages use a six-hour cache.
+4. **Inspect scoped dependency evidence.** In Vulnerabilities, select a bundled or dependency-graph finding and open its source receipt and full evidence manifest. Explain that an exact advisory range match is not execution or deployment exploitability. Open Repository controls to show manifest/native/source coverage separately: 7,082 records, 5,581 supported exact queries, 157 full advisory details, five parse failures, unresolved declarations and partial wider-source coverage.
 5. **Record a local decision.** Return to the PR inspector, select **Record decision**, supply a named reviewer and evidence notes, then record ready or hold. Ready requires a fresh GitHub source and complete bounded coverage. A pause can deliberately preserve a limitation.
 6. **Observe the event without reloading.** The new decision appears in the live event memory and updates the PR card. Explain that the same channel carries later commit, review, CI and external-web observations.
 7. **Export the receipt.** Select **Export decision**. The Markdown file includes the exact head, source/evidence fingerprints, checks, files, owner, note and residual limitations. A later head, external change or check-run update can expire that decision.
-8. **Show the supporting incident workflow.** Vulnerabilities combines OSV/CISA evidence with repository reachability clues, an ordered response checklist, retained history and a Markdown IR record. Heuristics do not prove exploitability.
+8. **Show ownership and residual limits.** Vulnerabilities combines OSV/CISA evidence with dependency scope, source manifests, an ordered response checklist, retained history and a Markdown IR record. Only application manifests can be patched directly. Bundled, test and dependency-graph findings belong to their owning workflows. Native comparisons and unresolved/unread files remain review gaps.
 
 ## Two-minute video outline
 
@@ -37,7 +37,7 @@ Open Web Watch and a relevant official-source receipt.
 
 > “Context.dev retrieves the official model, pricing, release-note and status pages relevant to the code. DriftCI keeps their snapshots and diffs locally. The first page is a baseline, never an invented alert. Request pacing, caching and a credit ceiling are visible controls.”
 
-Describe polling accurately as DriftCI-local polling. Do not claim a Context.dev monitor resource, ID, webhook or remote run history.
+Distinguish DriftCI-local polling from the real Context.dev hourly monitor and its remote run records. The UI exposes the genuine monitor and run IDs. Baselines and no-change completions are not alerts. Context.dev monitor webhooks are not implemented; the optional GitHub webhook is separate. Optional research is currently budget-skipped in the public Node workspace.
 
 ### 1:05–1:25 — one owner, one evidence set
 
@@ -72,7 +72,7 @@ For a controlled writable pull-request workflow, obtain explicit authorization a
 
 ## Repository and cost notes
 
-- `vercel/ai`: public selective index, currently 120 files at a pinned main-branch commit. Large monorepo coverage is partial.
+- `nodejs/node`: 1,600 selective records at `c07db8c5c1b1b18e1e0e088b83f56922c142c0cf`; all 525 manifest candidates read, 67 native-version files, 753 graph packages and partial wider-source coverage. A fresh isolated `service.connect()` measured 80.384 seconds; do not present it as cold-under-60 or conflate warm timings.
 - `junction/orders-ai`: deliberately outdated example, useful for compact OpenAI/Next.js evidence. The historical replay is explicitly labelled.
 - **Repository → demo controls** switches the workspace. `POST /api/demo/reset` clears the current workspace’s release records and signals, so do not run destructive QA against the public Release Room when preparing a recording.
 - Context.dev scrape/search is locally accounted; quota values are not account-side billing reconciliation. Current API health shows usage and remaining local credit capacity.

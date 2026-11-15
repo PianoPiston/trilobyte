@@ -83,6 +83,8 @@ def _python_change(content: str, package: str, fixed: str) -> str:
 
 
 def _vulnerability_changes(files: dict[str, str], signal: dict) -> tuple[dict[str, str], list[dict]]:
+    if signal.get("dependency_scope") not in {None, "", "application"}:
+        raise RemediationError("Only application manifests can be patched directly; bundled, metadata and example dependencies must be updated through their owning workflow")
     package = signal.get("affected_package")
     fixed = signal.get("fixed_version")
     if not package or not fixed:
@@ -118,7 +120,9 @@ def _vulnerability_changes(files: dict[str, str], signal: dict) -> tuple[dict[st
     return changed, checks
 
 
-def generate(files: dict[str, str], signal: dict, github_configured: bool) -> dict:
+def generate(files: dict, signal: dict, github_configured: bool) -> dict:
+    # Parsed repository records retain only their text for deterministic patch generation.
+    files = {path: record.get("content", "") if isinstance(record, dict) else record for path, record in files.items() if isinstance(record, (str, dict))}
     before_all = {path: files[path] for path in files}
     if signal["kind"] == "deprecation":
         changed, checks = _model_changes(files, signal)

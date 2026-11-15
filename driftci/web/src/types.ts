@@ -1,30 +1,39 @@
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
-export type SignalKind = 'deprecation' | 'vulnerability' | 'api' | 'pricing' | 'status';
+export type SignalKind = 'deprecation' | 'vulnerability' | 'api' | 'pricing' | 'status' | 'security_update';
 export type SignalState = 'needs_action' | 'acknowledged' | 'fix_ready' | 'resolved' | 'monitoring';
 export type ActionStatus = 'done' | 'pending';
 
 export interface RepositoryCoverage {
-  mode: 'github_tree_selective';
-  archive_downloaded: false;
-  commit_sha: string;
+  mode: string;
+  archive_downloaded: boolean;
+  commit_sha?: string;
   complete: boolean;
+  source_complete?: boolean;
   tree_truncated: boolean;
   repository_files: number;
   candidate_files: number;
-  selected_files: number;
+  selected_files?: number;
   files_read: number;
   skipped_large_files: number;
   skipped_budget_files: number;
   failed_files: number;
   timed_out_files: number;
   source_read_seconds?: number;
-  time_budget_seconds?: number;
-  per_file_timeout_seconds?: number;
   bytes_read: number;
-  file_limit: number;
-  byte_limit: number;
-  per_file_limit: number;
   repository_size_kb: number | null;
+  manifest_candidates?: number;
+  manifest_files_read?: number;
+  manifest_files_failed?: number;
+  manifests_missing?: number;
+  dependency_manifest_complete?: boolean;
+  native_version_files_read?: number;
+  structured_packages?: number;
+  dependency_graph_status?: string;
+  metadata_transport?: string;
+  context_metadata_reads?: number;
+  context_metadata_error?: string | null;
+  dependency_parse_errors?: Array<{ path: string; reason: string }>;
+  note?: string;
 }
 
 export interface Workspace {
@@ -122,6 +131,12 @@ export interface Signal {
   remediation_id: string | null;
   created_at: string;
   watch_id?: string;
+  monitor_id?: string;
+  dependency_scope?: string;
+  manifest?: string;
+  affected_package?: string;
+  ecosystem?: string;
+  affected_version?: string;
   change?: WebObservation;
   reviewed_at?: string | null;
   observed_at?: string | null;
@@ -131,10 +146,53 @@ export interface Dependency {
   name: string;
   ecosystem: string;
   version: string;
+  declared: string;
+  resolved_version: string | null;
+  exact: boolean;
+  scope: string;
+  certainty: string;
+  manifest: string;
+  advisory_supported: boolean;
   kind: string;
   health: string;
   usage_count: number;
   issues: number;
+}
+
+export interface MonitorBudget {
+  reserved: number;
+  spent: number;
+  active?: number;
+}
+
+export interface MonitorStatus {
+  configured: boolean;
+  mode: string;
+  id?: string;
+  name?: string;
+  status?: string;
+  schedule?: string;
+  next_run_at?: string;
+  last_polled_at?: string;
+  baseline_at?: string;
+  new_changes?: number;
+  target?: { type?: string; query?: string };
+  budget?: MonitorBudget;
+  note?: string;
+  error?: string;
+  last_run?: {
+    id?: string;
+    status?: string;
+    run_type?: string;
+    started_at?: string;
+    completed_at?: string;
+    change_detected?: boolean;
+    change_id?: string | null;
+    baseline_created?: boolean;
+    credits_charged?: number;
+    skip_reason?: string | null;
+    error?: string | null;
+  } | null;
 }
 
 export interface Activity {
@@ -157,6 +215,18 @@ export interface WatchedSource {
   packages_total?: number;
   packages_checked?: number;
   packages_pending?: number;
+  packages_eligible?: number;
+  packages_unresolved?: number;
+  packages_unsupported?: number;
+  batch_count?: number;
+  batches_completed?: number;
+  live_batches?: number;
+  cached_batches?: number;
+  seconds?: number;
+  advisory_details_requested?: number;
+  advisory_details_retrieved?: number;
+  advisory_details_pending?: number;
+  complete?: boolean;
   category?: string;
   package?: string | null;
   custom?: boolean;
@@ -186,6 +256,8 @@ export interface Incident {
   resolved_at: string | null;
   affected_package: string;
   affected_version: string;
+  dependency_scope?: string;
+  manifest?: string;
   fixed_version: string | null;
   reachability: string;
   reachability_reason: string;
@@ -289,6 +361,9 @@ export interface ReleaseStreamStatus {
   last_polled_at?: string;
   last_success_at?: string;
   last_transport_mode?: string;
+  metadata_transport?: 'context.dev_bytes' | 'direct_api.github.com';
+  last_metadata_retrieved_at?: string;
+  context_metadata_error?: string | null;
   last_error?: string | null;
   detail_pending?: number;
   release_requests?: number;
@@ -309,6 +384,7 @@ export interface ReleaseData {
 
 export interface Bootstrap {
   workspace: Workspace;
+  monitor: MonitorStatus | null;
   summary: Summary;
   signals: Signal[];
   dependencies: Dependency[];
@@ -343,6 +419,11 @@ export interface Health {
       daily_credits: number;
       daily_credit_limit: number;
       cache_ttl_seconds: number;
+      monitor_credits_today?: number;
+      monitor_reserved_today?: number;
+      monitor_spent_and_reserved?: number;
+      ordinary_reserved_credits?: number;
+      daily_available?: number;
     };
   };
   github: { configured: boolean; mode: string };
@@ -350,6 +431,7 @@ export interface Health {
   source_counts: Record<string, number>;
   watcher?: { enabled: boolean; interval_seconds: number; implementation: string };
   release_stream?: ReleaseStreamStatus;
+  monitor?: MonitorStatus;
 }
 
 export interface IncidentsResponse {

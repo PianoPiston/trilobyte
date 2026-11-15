@@ -4,7 +4,9 @@ Scraped markdown is untrusted input. It is size-capped, sanitized, cached and pa
 """
 from __future__ import annotations
 
+import base64
 import ipaddress
+import json
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -39,31 +41,40 @@ DOCUMENTS = (
 
 
 class ContextDev:
-    def __init__(self, db: Database, web: CachedWebClient, api_key: str | None, ttl: int = 21600, daily_credit_limit: int = 80):
+    def __init__(self, db: Database, web: CachedWebClient, api_key: str | None, ttl: int = 21600, daily_credit_limit: int = 10_000, monitor_budget=None):
         self.db = db
         self.web = web
         self.api_key = api_key
         self.ttl = ttl
         self.daily_credit_limit = daily_credit_limit
+        self.monitor_budget = monitor_budget or (lambda: {"spent": 0, "reserved": 0})
+        # Count in-flight scrape/search reservations as well as settled charges.
+        self._reserved_credits = 0
 
     def usage(self) -> dict:
         today = datetime.now(timezone.utc).date().isoformat()
         daily = self.db.get_meta("context_daily", {})
         if daily.get("date") != today:
             daily = {"date": today, "credits": 0, "queries": 0}
+        budget = self.monitor_budget()
         return {
             "queries": self.db.get_meta("context_queries", 0),
             "credits": self.db.get_meta("context_credits", 0),
             "daily_queries": daily["queries"],
             "daily_credits": daily["credits"],
+            "monitor_credits_today": budget["spent"], "monitor_reserved_today": budget["reserved"],
+            "monitor_spent_and_reserved": budget["spent"] + budget["reserved"],
+            "ordinary_reserved_credits": self._reserved_credits,
+            "daily_available": max(0, self.daily_credit_limit - daily["credits"] - budget["spent"] - budget["reserved"] - self._reserved_credits),
             "daily_credit_limit": self.daily_credit_limit,
             "cache_ttl_seconds": self.ttl,
         }
 
     def _budget_error(self, estimated_credits: int = 1) -> str | None:
         usage = self.usage()
-        if usage["daily_credits"] + estimated_credits > self.daily_credit_limit:
-            return f"Daily Context.dev budget reached ({self.daily_credit_limit} locally recorded credits); cached evidence retained"
+        if usage["daily_available"] < estimated_credits:
+            return f"Daily Context.dev budget reached ({self.daily_credit_limit} credits): {usage['daily_credits']} scrape/search credits and {usage['monitor_spent_and_reserved']} monitor credits spent/reserved; cached evidence retained"
+        self._reserved_credits += estimated_credits
         return None
 
     def _record_usage(self, result: WebResult, kind: str, fallback_credits: int) -> None:
@@ -86,11 +97,16 @@ class ContextDev:
     async def scrape(self, spec: DocumentSpec, ttl: int | None = None) -> WebResult:
         if not self.api_key:
             return WebResult(error="CONTEXTDEV_API_KEY is not configured; retained last-known evidence")
-        result = await self.web.request_json("POST", API_URL, f"context:v2:{spec.scrape_url}", self.ttl if ttl is None else ttl, payload={
-            "url": spec.scrape_url,
-            "formats": {"markdown": True, "html": False},
-            "timeoutOpts": {"milliseconds": 30000, "behavior": "return-partial"},
-        }, headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}, allow_request=lambda: self._budget_error(1))
+        reservation = self._budget_error(1)
+        try:
+            result = await self.web.request_json("POST", API_URL, f"context:v2:{spec.scrape_url}", self.ttl if ttl is None else ttl, payload={
+                "url": spec.scrape_url,
+                "formats": {"markdown": True, "html": False},
+                "timeoutOpts": {"milliseconds": 30000, "behavior": "return-partial"},
+            }, headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}, allow_request=lambda: reservation)
+        finally:
+            if reservation is None:
+                self._reserved_credits -= 1
         if result.error:
             return result
         markdown = (result.data or {}).get("markdown") or {}
@@ -100,15 +116,64 @@ class ContextDev:
         result.data = sanitize_markdown(markdown["data"])
         return result
 
+    async def metadata_json(self, url: str, max_bytes: int = 50_000_000, ttl: int | None = None) -> WebResult:
+        """Fetch public GitHub API JSON through Context.dev's byte-preserving transport."""
+        if not self.api_key:
+            return WebResult(error="CONTEXTDEV_API_KEY is not configured; using direct GitHub metadata reads")
+        parsed_url = urlparse(url)
+        if parsed_url.scheme != "https" or parsed_url.hostname != "api.github.com" or parsed_url.username or parsed_url.password:
+            return WebResult(error="Context.dev repository metadata requires a public api.github.com HTTPS URL")
+        cache_ttl = self.ttl if ttl is None else ttl
+        reservation = self._budget_error(1)
+        try:
+            result = await self.web.request_json("POST", API_URL, f"context-bytes:v1:{url}", cache_ttl, payload={
+                "url": url, "formats": {"bytes": True}, "maxAgeMs": cache_ttl * 1000,
+                "timeoutOpts": {"milliseconds": 30000, "behavior": "fail"},
+            }, headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}, allow_request=lambda: reservation)
+        finally:
+            if reservation is None:
+                self._reserved_credits -= 1
+        if result.error:
+            return result
+        if not isinstance(result.data, dict):
+            return WebResult(error="Context.dev returned an invalid metadata response envelope")
+        self._record_usage(result, "scrape", 1)
+        body = ((result.data or {}).get("bytes") or {})
+        if not isinstance(body, dict):
+            return WebResult(error="Context.dev returned an invalid bytes response")
+        payload = body.get("data") or {}
+        if body.get("success") is not True or not isinstance(payload, dict) or not isinstance(payload.get("base64"), str):
+            return WebResult(error="Context.dev could not retrieve the GitHub metadata body")
+        try:
+            content = base64.b64decode(payload["base64"], validate=True)
+            if len(content) > max_bytes:
+                raise ValueError("metadata response exceeds the declared byte limit")
+            content_type = payload.get("contentType", "")
+            if "application/json" not in content_type.lower():
+                raise ValueError("metadata response is not JSON")
+            data = json.loads(content)
+            if not isinstance(data, (dict, list)):
+                raise ValueError("metadata response is not an object or array")
+            if isinstance(data, dict) and isinstance(data.get("message"), str) and "documentation_url" in data:
+                raise ValueError(data["message"])
+        except (ValueError, UnicodeDecodeError) as exc:
+            return WebResult(error=f"Context.dev returned invalid GitHub metadata: {safe_excerpt(str(exc), 200)}")
+        return WebResult(data, result.mode, result.retrieved_at)
+
     async def search(self, query: str) -> WebResult:
         """Run one scoped discovery query; highlights cost at most two credits."""
         if not self.api_key:
             return WebResult(error="CONTEXTDEV_API_KEY is not configured; scoped web research is unavailable")
-        result = await self.web.request_json("POST", API_ROOT + "/web/search", f"context-search:v1:{query}", self.ttl, payload={
-            "query": query[:500], "numResults": 5,
-            "highlightsOptions": {"enabled": True, "maxCharacters": 1400},
-            "timeoutOpts": {"milliseconds": 30000, "behavior": "return-partial"},
-        }, headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}, allow_request=lambda: self._budget_error(2))
+        reservation = self._budget_error(2)
+        try:
+            result = await self.web.request_json("POST", API_ROOT + "/web/search", f"context-search:v1:{query}", self.ttl, payload={
+                "query": query[:500], "numResults": 5,
+                "highlightsOptions": {"enabled": True, "maxCharacters": 1400},
+                "timeoutOpts": {"milliseconds": 30000, "behavior": "return-partial"},
+            }, headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}, allow_request=lambda: reservation)
+        finally:
+            if reservation is None:
+                self._reserved_credits -= 2
         if result.error:
             return result
         rows = (result.data or {}).get("results")

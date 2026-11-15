@@ -55,10 +55,11 @@ def check_summary(checks: list[dict]) -> dict:
 
 
 class ReleaseWatcher:
-    def __init__(self, db: Database, settings: Settings, http: httpx.AsyncClient):
+    def __init__(self, db: Database, settings: Settings, http: httpx.AsyncClient, metadata_context=None):
         self.db = db
         self.settings = settings
         self.http = http
+        self.metadata_context = metadata_context
 
     def health(self) -> dict:
         state = self.db.get_meta("github_release_health", {})
@@ -66,8 +67,8 @@ class ReleaseWatcher:
             **state,
             "poll_interval_seconds": self.settings.release_poll_interval_seconds,
             "webhook_configured": bool(self.settings.release_webhook_secret),
-            "implementation": "verified webhooks with ETag polling fallback" if self.settings.release_webhook_secret else "public ETag polling; webhooks require a configured secret",
-            "credential_usage": "GitHub token is sent only to api.github.com; a separate secret verifies webhooks",
+            "implementation": ("verified webhooks with " if self.settings.release_webhook_secret else "") + ("Context.dev byte-preserving metadata" if self.metadata_context else "public ETag polling") + ("; webhooks require a configured secret" if not self.settings.release_webhook_secret else " fallback"),
+            "credential_usage": "GitHub authorization is sent only to direct api.github.com requests, never through Context.dev; a separate secret verifies webhooks",
         }
 
     async def _quota(self) -> dict:
@@ -100,10 +101,30 @@ class ReleaseWatcher:
         if urlparse(url).hostname != "api.github.com":
             raise ValueError("Release metadata is restricted to api.github.com")
         health = self.db.get_meta("github_release_health", {})
+        if self.metadata_context:
+            result = await self.metadata_context.metadata_json(url, 2_000_000, ttl=self.settings.status_cache_ttl_seconds)
+            if not result.error and isinstance(result.data, (dict, list)) and result.retrieved_at:
+                now = result.retrieved_at
+                self.db.cache_set("github-release:" + url, time.time(), {"body": result.data, "retrieved_at": now})
+                health.update({
+                    "metadata_transport": "context.dev_bytes",
+                    "last_metadata_retrieved_at": now,
+                    "context_metadata_error": None,
+                })
+                health.pop("retry_not_before_epoch", None)
+                health.pop("retry_after_seconds", None)
+                self.db.set_meta("github_release_health", health)
+                self.db.increment_meta("github_release_requests")
+                return result.data, result.mode
+            health["context_metadata_error"] = safe_excerpt(result.error or "Context.dev returned incomplete release metadata", 240)
+            self.db.set_meta("github_release_health", health)
         waiting = max(0, _integer(health.get("retry_not_before_epoch")) - int(time.time()))
         if waiting:
             deadline = datetime.fromtimestamp(_integer(health.get("retry_not_before_epoch")), timezone.utc).isoformat().replace("+00:00", "Z")
-            raise ReleaseError(f"GitHub retry window is active until {deadline}. Retained release evidence is not current.", waiting)
+            message = f"GitHub retry window is active until {deadline}. Retained release evidence is not current."
+            if health.get("context_metadata_error"):
+                message += " Context.dev metadata fallback: " + health["context_metadata_error"]
+            raise ReleaseError(message, waiting)
         etags = self.db.get_meta("github_release_etags", {})
         headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "DriftCI/2.0"}
         if self.settings.github_token:
@@ -130,11 +151,14 @@ class ReleaseWatcher:
                 else:
                     health.pop("retry_not_before_epoch", None)
                     health.pop("retry_after_seconds", None)
+                health["metadata_transport"] = "direct_api.github.com"
                 self.db.set_meta("github_release_health", health)
                 if response.status_code == 304:
                     cached = self.db.cache_get(key)
                     if cached is None:
                         raise ReleaseError("GitHub returned 304 without a retained response")
+                    health["last_metadata_retrieved_at"] = utcnow()
+                    self.db.set_meta("github_release_health", health)
                     return cached.get("body"), "cached"
                 if response.status_code == 404:
                     raise ReleaseError("GitHub repository or pull request was not found. It may be private, renamed or removed; retained workspace evidence is not current.")
@@ -166,6 +190,8 @@ class ReleaseWatcher:
                 if not isinstance(body, (dict, list)):
                     raise ReleaseError("GitHub returned an invalid release document")
                 now = utcnow()
+                health["last_metadata_retrieved_at"] = now
+                self.db.set_meta("github_release_health", health)
                 self.db.cache_set(key, time.time(), {"body": body, "retrieved_at": now})
                 if response.headers.get("ETag"):
                     etags[url] = response.headers["ETag"][:300]
@@ -250,8 +276,9 @@ class ReleaseWatcher:
             })
         return checks, _integer(body.get("total_count")) == len(checks) and len(checks) == len(body["check_runs"])
 
-    async def refresh(self, pr_number: int | None = None) -> dict:
+    async def refresh(self, pr_number: int | None = None, detail_limit: int | None = None) -> dict:
         """Reconcile a small recent PR window, fetching details only when they change."""
+        detail_limit = self.settings.release_detail_limit if detail_limit is None else min(5, max(0, detail_limit))
         workspace = self.db.workspace()
         if workspace.get("source") != "github":
             return {"status": "example", "prs": 0, "detail_pending": 0, "errors": []}
@@ -295,10 +322,15 @@ class ReleaseWatcher:
                 "updated_at": _timestamp(row.get("updated_at")) or utcnow(),
                 "merged_at": _timestamp(row.get("merged_at")), "merged": bool(row.get("merged_at")),
                 "repository": f"{owner}/{repo}",
+                "files": [], "files_complete": False,
+                "reviews": [], "reviews_complete": False,
+                "checks": [], "checks_complete": False,
             }
+            if old and old.get("head_sha") != head_sha and needs_detail:
+                pr.update(files=[], files_complete=False, reviews=[], reviews_complete=False, checks=[], checks_complete=False)
             events: list[dict] = []
             detail_complete = bool(old and not needs_detail and old.get("detail_complete"))
-            if needs_detail and detailed < self.settings.release_detail_limit:
+            if needs_detail and detailed < detail_limit:
                 detailed += 1
                 detail = await asyncio.gather(
                     self._get(f"{root}/pulls/{number}/files?per_page=30"),

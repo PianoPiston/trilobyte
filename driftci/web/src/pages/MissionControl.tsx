@@ -85,7 +85,7 @@ export function MissionControl({ data, health, onNavigate, onSelectSignal }: {
           <p>{latestChange ? `${latestChange.added_lines} additions and ${latestChange.removed_lines} removals observed ${relativeTime(latestChange.observed_at).toLowerCase()}.` : 'The next changed snapshot will appear with its diff and affected code locations.'}</p>
         </div>
         <div className="pulse-stat"><span>Changes observed</span><strong>{data.summary.observed_changes}</strong></div>
-        <div className="pulse-stat"><span>Local credits today</span><strong>{health?.context_dev.usage.daily_credits ?? 0}</strong></div>
+        <div className="pulse-stat" title={data.monitor ? 'Hosted monitor credits are accounted separately on Web Watch.' : 'Credits used by local Context.dev requests today.'}><span>Local credits today</span><strong>{health?.context_dev.usage.daily_credits ?? 0}</strong></div>
         <Button variant="ghost" onClick={() => onNavigate('watch')}>Watchlist<ArrowRight aria-hidden="true" /></Button>
       </section>
 
@@ -95,9 +95,10 @@ export function MissionControl({ data, health, onNavigate, onSelectSignal }: {
             <Gauge aria-hidden="true" />
           </div>
           <div>
-            <span className="metric-label">Workspace risk</span>
+            <span className="metric-label">Workspace review load</span>
             <div className="metric-value">{data.summary.risk_score}<span>/100</span></div>
             <p>{plural(data.summary.affected_dependencies, 'affected dependency', 'affected dependencies')}</p>
+            <small className="risk-scope-note">Advisory priority across application and bundled/test inventory; deployment impact needs review.</small>
           </div>
           <div className="risk-meter" aria-hidden="true">
             <span style={{ width: `${Math.max(0, Math.min(100, data.summary.risk_score))}%` }} />

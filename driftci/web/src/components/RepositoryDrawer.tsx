@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import type { Bootstrap, Health } from '../types';
-import { errorText, label, relativeTime } from '../utils';
+import { errorText, label, plural, relativeTime } from '../utils';
 import { Button, Drawer, InlineNotice } from './ui';
 
 function formatBytes(value: number) {
@@ -71,6 +71,8 @@ export function RepositoryDrawer({ data, health, busy, onClose, onConnect, onRep
   };
 
   const coverage = data.workspace.coverage;
+  const osv = data.sources.find((source) => source.id === 'src-osv');
+  const native = Array.from(new Map(data.dependencies.filter((dependency) => dependency.ecosystem === 'Native').map((dependency) => [dependency.name, dependency])).values());
 
   return (
     <Drawer title="Repository & demo controls" subtitle="Connection, provenance and reproducible examples" onClose={onClose}>
@@ -93,18 +95,38 @@ export function RepositoryDrawer({ data, health, busy, onClose, onConnect, onRep
         </dl>
         {coverage && (
           <div className={`repository-coverage ${coverage.complete ? '' : 'is-partial'}`} data-testid="repository-coverage">
-            <div className="coverage-heading"><strong>Selective source index</strong><span>{coverage.complete ? 'Full eligible-file coverage' : 'Partial coverage'}</span></div>
-            <p><b>{coverage.files_read} / {coverage.candidate_files}</b> relevant manifests and source/config files · {formatBytes(coverage.bytes_read)} read · commit <code>{coverage.commit_sha.slice(0, 12)}</code>{coverage.source_read_seconds !== undefined && <> · {coverage.source_read_seconds.toFixed(1)}s file-read time</>}.</p>
-            <small>No archive or clone. Tree metadata listed {coverage.repository_files} files{coverage.tree_truncated ? ' (truncated by GitHub)' : ''}; dependencies/media/builds/vendor directories are filtered before file reads.</small>
-            {(coverage.timed_out_files ?? 0) > 0 && <small className="coverage-warning">{coverage.timed_out_files} source read(s) exceeded the time budget. Check the server limits or retry later; they were not treated as safe or absent.</small>}
-            {!coverage.complete && <small className="coverage-warning">{coverage.skipped_large_files + coverage.skipped_budget_files + coverage.failed_files} candidate file(s) were not read. Partial results are not evidence of absence; increase the server-side source budget for a wider index.</small>}
+            <div className="coverage-heading"><strong>Repository intelligence coverage</strong><span>{coverage.source_complete ? 'Wider source index complete' : 'Targeted, with explicit gaps'}</span></div>
+            <p><b>{coverage.files_read.toLocaleString()} text files</b> · {formatBytes(coverage.bytes_read)} · commit <code>{coverage.commit_sha?.slice(0, 12) ?? 'unavailable'}</code>{coverage.source_read_seconds !== undefined && <> · {coverage.source_read_seconds.toFixed(1)}s file-read time</>}.</p>
+            <dl className="coverage-facts">
+              <div><dt>Dependency manifests</dt><dd>{coverage.manifest_files_read ?? 0} / {coverage.manifest_candidates ?? 0} discovered read</dd></div>
+              <div><dt>GitHub dependency graph</dt><dd>{coverage.structured_packages ?? 0} package records</dd></div>
+              <div><dt>Native-version files</dt><dd>{coverage.native_version_files_read ?? 0} read</dd></div>
+              <div><dt>Wider source index</dt><dd>{coverage.source_complete ? 'Complete for selected tree' : `${coverage.skipped_budget_files.toLocaleString()} budget-skipped files`}</dd></div>
+            </dl>
+            <small>No archive or clone. GitHub listed {coverage.repository_files.toLocaleString()} tree entries{coverage.tree_truncated ? ' (truncated)' : ''}. API metadata uses {coverage.metadata_transport === 'context.dev_bytes' ? 'Context.dev’s byte-preserving request transport' : 'direct GitHub requests'}; code reads use commit-pinned raw URLs.</small>
+            {coverage.context_metadata_error && <small className="coverage-warning">A Context.dev metadata request fell back to direct GitHub: {coverage.context_metadata_error}</small>}
+            {osv && (
+              <div className="advisory-coverage">
+                <div><strong>Registry advisories</strong><span>{osv.packages_checked?.toLocaleString() ?? 0} / {osv.packages_eligible?.toLocaleString() ?? 0} exact versions checked</span></div>
+                <p>{osv.advisory_details_retrieved ?? 0} full advisory details retrieved; {osv.advisory_details_pending ?? 0} pending. {plural(osv.packages_unsupported ?? 0, 'native, project or unsupported comparison')} excluded. {plural(osv.packages_unresolved ?? 0, 'remaining unresolved declaration')} retained for review.</p>
+              </div>
+            )}
+            <div className="coverage-limit-grid">
+              <span><b>{coverage.dependency_parse_errors?.length ?? 0}</b> manifest parse failures</span>
+              <span><b>{coverage.skipped_large_files}</b> oversized manifest/native files</span>
+              <span><b>{coverage.failed_files + coverage.timed_out_files}</b> failed/timed-out reads</span>
+              <span><b>{coverage.manifests_missing ?? 0}</b> discovered manifests not read</span>
+            </div>
+            {!!coverage.dependency_parse_errors?.length && <details className="parse-error-list"><summary>Review manifest parsing evidence</summary>{coverage.dependency_parse_errors.map((item) => <div key={item.path}><code>{item.path}</code><span>{item.reason}</span></div>)}</details>}
+            {!!native.length && <details className="native-component-list"><summary>Native declaration inventory</summary><p>Versions come from native headers and dependency files. Platform-specific advisory review is required for these declarations.</p>{native.map((dependency) => <div key={dependency.name}><strong>{dependency.name}</strong><code>{dependency.version}</code><small title={dependency.manifest}>{dependency.manifest}</small></div>)}</details>}
+            {!coverage.source_complete && <small className="coverage-warning">Wider source reading is partial; this section reports source reads, manifest parsing and advisory eligibility separately. Partial source coverage is not evidence of absence.</small>}
           </div>
         )}
       </section>
 
       <section className="drawer-section repository-connect">
         <div className="drawer-section-heading"><h3>Connect a public repository</h3><Github aria-hidden="true" /></div>
-        <p>DriftCI reads selected manifests and source files directly from GitHub at a pinned commit. There is no repository ZIP, clone, install or code execution.</p>
+        <p>DriftCI reads GitHub metadata, the dependency graph, native declarations, manifests and targeted source files at an immutable commit. It never downloads repository archives, clones, installs or executes code.</p>
         <form onSubmit={(event) => void connect(event)} noValidate>
           <label htmlFor="repository-url">GitHub repository URL</label>
           <div className="repository-input">
@@ -119,9 +141,9 @@ export function RepositoryDrawer({ data, health, busy, onClose, onConnect, onRep
               aria-describedby="repository-help"
             />
           </div>
-          <small id="repository-help">Public GitHub repositories over HTTPS, including nodejs/node. Defaults: 120 files / 4 MB, up to 25 seconds of source reading; coverage is reported.</small>
+          <small id="repository-help">Public GitHub repositories over HTTPS, including large repositories such as nodejs/node. Repository archives and clones are never downloaded. Manifest completeness and source coverage are reported independently.</small>
           {error && <InlineNotice tone="error" role="alert">{error}</InlineNotice>}
-          {busy === 'connect' && <InlineNotice className="repository-progress" role="status"><div><strong>Indexing a bounded source subset…</strong><p>Manifests are read first, then intelligence runs. Large repositories normally finish in seconds; slow files expire and are reported, never silently skipped.</p></div></InlineNotice>}
+          {busy === 'connect' && <InlineNotice className="repository-progress" role="status"><div><strong>Reading manifests and source evidence…</strong><p>GitHub metadata and targeted reads run first, followed by exact-version OSV checks and full advisory-detail retrieval. File and time limits are reported above; unsupported comparisons remain review items.</p></div></InlineNotice>}
           <Button type="submit" variant="primary" icon={ArrowUpRight} loading={busy === 'connect'}>Connect & scan repository</Button>
         </form>
       </section>

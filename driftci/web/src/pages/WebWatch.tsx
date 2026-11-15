@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import type { Bootstrap, Health } from '../types';
-import { cx, domain, errorText, formatDate, plural, relativeTime } from '../utils';
+import { cx, domain, errorText, formatDate, label as labelMode, plural, relativeTime } from '../utils';
 import {
   Button,
   EmptyState,
@@ -36,11 +36,18 @@ export function WebWatch({ data, health, busy, onAddWatch, onRemoveWatch, onSele
   const [title, setTitle] = useState('');
   const [error, setError] = useState('');
   const [removing, setRemoving] = useState('');
-  const sources = data.sources.filter((source) => source.watch || source.category);
+  const sources = data.sources.filter((source) => source.watch || (source.category && source.category !== 'release_events'));
   const usage = health?.context_dev.usage;
   const credits = usage?.daily_credits ?? 0;
-  const limit = usage?.daily_credit_limit ?? 80;
+  const monitorCommitment = usage?.monitor_spent_and_reserved ?? 0;
+  const reserved = usage?.ordinary_reserved_credits ?? 0;
+  const committed = credits + monitorCommitment + reserved;
+  const researchError = data.sources.find((source) => source.id === 'src-context-search')?.error;
+  const limit = usage?.daily_credit_limit ?? 10_000;
   const cacheHours = Math.round((usage?.cache_ttl_seconds ?? 21600) / 3600);
+  const monitor = data.monitor ?? health?.monitor;
+  const monitorActive = monitor?.mode === 'remote_scheduled' && monitor.status === 'active';
+  const run = monitor?.last_run;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -81,16 +88,42 @@ export function WebWatch({ data, health, busy, onAddWatch, onRemoveWatch, onSele
           <div>
             <span className="context-eyebrow"><Radio aria-hidden="true" />Context.dev web intelligence</span>
             <h2>{plural(sources.length, 'source')} under watch.</h2>
-            <p>Official pages are checked on a local polling schedule. A {cacheHours}-hour shared cache and daily credit ceiling keep refresh costs bounded.</p>
+            <p>Local page checks use a {cacheHours}-hour shared cache. Any hosted Context.dev monitor has its own schedule and credit accounting below.</p>
           </div>
         </div>
         <div className="context-budget">
-          <span>Local usage today</span>
-          <strong>{credits}<small> / {limit} credits</small></strong>
-          <div className="budget-track" aria-label={`${credits} of ${limit} daily Context.dev credits used`}><span style={{ width: `${Math.min(100, credits / limit * 100)}%` }} /></div>
-          <p>{plural(usage?.daily_queries ?? 0, 'live request')} today · {plural(data.metrics.context_queries, 'request')} recorded</p>
+          <span>Local credits committed today</span>
+          <strong>{committed}<small> / {limit} credits</small></strong>
+          <div className="budget-track" aria-label={`${committed} of ${limit} daily Context.dev credits spent or reserved`}><span style={{ width: `${Math.min(100, committed / limit * 100)}%` }} /></div>
+          <p>{credits} scrape/search spent · {monitorCommitment} monitor spent/reserved{reserved ? ` · ${reserved} in flight` : ''} · {usage?.daily_available ?? 0} available</p>
+          {committed > limit && <p>Existing commitments exceed the daily ceiling. The active monitor is retained; additional ordinary requests and new schedules are blocked.</p>}
         </div>
       </section>
+
+      {monitor && (
+        <section className={`panel hosted-monitor ${monitorActive ? 'is-live' : ''}`} data-testid="hosted-monitor">
+          <div className="hosted-monitor-heading">
+            <div><span className="context-eyebrow"><Radio aria-hidden="true" />Context.dev remote scheduler</span><h2>{monitor.name ?? 'Repository security monitor'}</h2></div>
+            <span className={`badge ${monitorActive ? 'mode-live' : 'mode-replay'}`}><span className={monitorActive ? 'live-dot' : ''} />{labelMode(monitor.status ?? monitor.mode)}</span>
+          </div>
+          {monitor.error && <InlineNotice tone="warning" role="status">{monitor.error} Existing evidence is retained; this attempt did not produce a live completion.</InlineNotice>}
+          {monitor.target?.query && <div className="monitor-query"><span>Search query</span><code>{monitor.target.query}</code></div>}
+          <dl className="monitor-facts">
+            <div><dt>Schedule</dt><dd>{monitor.schedule === 'hourly' ? 'Every hour, run by Context.dev' : labelMode(monitor.schedule ?? 'unconfirmed')}</dd></div>
+            <div><dt>Next remote run</dt><dd>{monitor.next_run_at ? formatDate(monitor.next_run_at, true) : 'Not supplied'}</dd></div>
+            <div><dt>Monitor credits</dt><dd>{monitor.budget ? `${monitor.budget.spent} spent · ${monitor.budget.reserved} reserved` : 'Accounting unavailable'}</dd></div>
+            <div><dt>Reconciled by this app</dt><dd>{monitor.last_polled_at ? relativeTime(monitor.last_polled_at) : 'Not yet reconciled'}</dd></div>
+          </dl>
+          {run ? (
+            <div className="monitor-run">
+              <div><span>{labelMode(run.run_type ?? 'run')} · {run.id}</span><strong>{run.status === 'completed' ? 'Completed remotely' : labelMode(run.status ?? 'unknown')}</strong></div>
+              <p>{run.baseline_created ? 'Baseline stored. No change alert is created for a baseline.' : run.change_detected ? 'A new source change was observed and is available for repository review.' : 'The remote run completed without a change; no advisory or patch was created.'}</p>
+              <small>{run.completed_at ? formatDate(run.completed_at, true) : run.started_at ? `Started ${formatDate(run.started_at, true)}` : 'Run timing unavailable'}{run.credits_charged !== undefined ? ` · ${run.credits_charged} credits` : ''}{run.skip_reason ? ` · ${run.skip_reason}` : ''}{run.error ? ` · ${run.error}` : ''}</small>
+            </div>
+          ) : <p className="monitor-pending">No completed remote run has been reconciled yet. The schedule status alone is not presented as live completion.</p>}
+          <div className="monitor-footer"><code title={monitor.id}>{monitor.id}</code><span>Separate from the app’s 15-minute local polling. Webhook ingestion is not implemented.</span></div>
+        </section>
+      )}
 
       <section className="add-watch-bar">
         <div className="add-watch-intro"><Plus aria-hidden="true" /><div><strong>Watch a public web page</strong><span>Add a status page, policy, changelog or any operational source.</span></div></div>
@@ -133,7 +166,7 @@ export function WebWatch({ data, health, busy, onAddWatch, onRemoveWatch, onSele
         </section>
 
         <section className="panel watchlist-panel">
-          <SectionHeading title="Watchlist" description="Inferred from installed packages and configured models." />
+          <SectionHeading title="Watchlist" description="Repository-derived official pages and custom HTTPS watches." />
           {sources.length ? (
             <div className="watch-source-list">
               {sources.map((source) => (
@@ -163,6 +196,7 @@ export function WebWatch({ data, health, busy, onAddWatch, onRemoveWatch, onSele
           action={data.research?.mode ? <ModeBadge mode={data.research.mode} /> : <Search aria-hidden="true" />}
         />
         {data.research?.query && <div className="research-query"><span>Query</span><code>{data.research.query}</code><time>{relativeTime(data.research.retrieved_at ?? null)}</time></div>}
+        {researchError && <InlineNotice tone="warning" role="status">{researchError}</InlineNotice>}
         {data.discoveries.length ? (
           <div className="discovery-grid">
             {data.discoveries.map((result) => (
@@ -176,7 +210,7 @@ export function WebWatch({ data, health, busy, onAddWatch, onRemoveWatch, onSele
             ))}
           </div>
         ) : (
-          <div className="research-empty"><Search aria-hidden="true" /><p>Research results will appear after a Context.dev refresh for a repository with supported models or dependencies.</p></div>
+          <div className="research-empty"><Search aria-hidden="true" /><p>{researchError ? 'No research has been retrieved for this query. See the request and budget status above.' : 'Research results will appear after a Context.dev refresh for a repository with supported models or dependencies.'}</p></div>
         )}
       </section>
     </div>

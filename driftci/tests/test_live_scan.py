@@ -24,19 +24,23 @@ NEXT_ADVISORY = {
 }
 
 
+def osv_batch_response(request: httpx.Request) -> httpx.Response:
+    """Answer the actual batch contract, including duplicate OSV/GHSA aliases."""
+    body = json.loads(request.content)
+    results = []
+    for query in body["queries"]:
+        vulns = [NEXT_ADVISORY, dict(NEXT_ADVISORY, id="CVE-2025-29927", aliases=["GHSA-f82v-jwr5-mffw"])] if query["package"]["name"] == "next" else []
+        results.append({"vulns": vulns})
+    return httpx.Response(200, json={"results": results})
+
+
 def test_mocked_live_osv_and_kev_refresh_is_deduplicated_and_cached(tmp_path):
     calls = []
 
     def handler(request: httpx.Request):
         calls.append(str(request.url))
-        if str(request.url) == "https://api.osv.dev/v1/query":
-            body = json.loads(request.content)
-            package = body["package"]["name"]
-            vulns = [NEXT_ADVISORY] if package == "next" else []
-            # A second OSV/CVE record with an adjacent alias is deliberately included.
-            if package == "next":
-                vulns.append(dict(NEXT_ADVISORY, id="CVE-2025-29927", aliases=["GHSA-f82v-jwr5-mffw"]))
-            return httpx.Response(200, json={"vulns": vulns})
+        if str(request.url) == "https://api.osv.dev/v1/querybatch":
+            return osv_batch_response(request)
         if request.url.host == "www.cisa.gov":
             return httpx.Response(200, json={"vulnerabilities": [{"cveID": "CVE-2025-29927", "dueDate": "2025-04-01", "knownRansomwareCampaignUse": "Unknown"}]})
         raise AssertionError(f"Unexpected network request: {request.url}")
@@ -55,10 +59,10 @@ def test_mocked_live_osv_and_kev_refresh_is_deduplicated_and_cached(tmp_path):
         assert any(row["publisher"] == "CISA" for row in signal["source_receipts"])
         assert len([row for row in payload["signals"] if row["id"] == "sig-CVE-2025-29927"]) == 1
         assert len(payload["history"]) == 1
-        assert len(calls) == 4  # Three exact dependencies and one KEV feed; Context.dev is unconfigured.
+        assert len(calls) == 2  # All exact npm/PyPI versions share one OSV batch; CISA is separate.
         first_retrieval = signal["source_receipts"][0]["retrieved_at"]
         second = client.post("/api/scan").json()
-        assert len(calls) == 4
+        assert len(calls) == 2
         cached = next(row for row in second["signals"] if row["id"] == "sig-CVE-2025-29927")
         assert cached["source_receipts"][0]["mode"] == "cached"
         assert cached["source_receipts"][0]["retrieved_at"] == first_retrieval
@@ -73,8 +77,9 @@ def test_osv_package_limit_reports_unchecked_scope(tmp_path):
 
     def handler(request: httpx.Request):
         if request.url.host == "api.osv.dev":
-            queried.append(json.loads(request.content)["package"]["name"])
-            return httpx.Response(200, json={"vulns": []})
+            assert request.url.path == "/v1/querybatch"
+            queried.extend(query["package"]["name"] for query in json.loads(request.content)["queries"])
+            return osv_batch_response(request)
         if request.url.host == "www.cisa.gov":
             return httpx.Response(200, json={"vulnerabilities": []})
         raise AssertionError(str(request.url))
@@ -85,10 +90,12 @@ def test_osv_package_limit_reports_unchecked_scope(tmp_path):
     source = next(row for row in payload["sources"] if row["publisher"] == "OSV")
     assert queried == ["next"]
     assert source["status"] == "partial"
-    assert source["packages_total"] == 3
+    assert source["packages_total"] == 9  # Nine non-project declarations, including unresolved ranges.
     assert source["packages_checked"] == 1
     assert source["packages_pending"] == 2
-    assert "2 additional" in source["error"]
+    assert source["packages_checked"] + source["packages_pending"] == source["packages_eligible"]
+    assert source["packages_total"] == source["packages_eligible"] + source["packages_unresolved"] + source["packages_unsupported"]
+    assert "2 supported package queries remain pending" in source["error"]
     assert source["status"] == "partial"
     assert health["source_counts"]["partial"] == 1
 

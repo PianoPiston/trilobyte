@@ -101,18 +101,21 @@ async function api(pathname, method = 'GET') {
       const response = await route.fetch();
       const payload = await response.json();
       const osv = payload.sources.find((source) => source.publisher === 'OSV');
-      if (osv) Object.assign(osv, { status: 'partial', packages_total: 76, packages_checked: 32, packages_pending: 44 });
+      if (osv) Object.assign(osv, { status: 'partial', packages_total: 76, packages_eligible: 76, packages_checked: 32, packages_pending: 44, complete: false });
       payload.workspace = {
         ...payload.workspace,
         name: 'Large public repository', repository: 'acme/large-repository', source: 'github',
         coverage: {
           mode: 'github_tree_selective', archive_downloaded: false, commit_sha: 'a'.repeat(40),
           complete: false, tree_truncated: true, repository_files: 95000,
+          source_complete: false, code_read_is_partial: true, dependency_manifest_complete: false,
           candidate_files: 21, selected_files: 10, files_read: 10,
+          manifest_candidates: 8, manifest_files_read: 7, manifests_missing: 1,
+          structured_packages: 14, native_version_files_read: 2,
           skipped_large_files: 1, skipped_budget_files: 9, failed_files: 1, timed_out_files: 1,
-          bytes_read: 82000, file_limit: 120, byte_limit: 4000000,
-          per_file_limit: 1000000, repository_size_kb: 90000,
-          source_read_seconds: 1.6, time_budget_seconds: 25, per_file_timeout_seconds: 6,
+          bytes_read: 82000, file_limit: 1600, byte_limit: 32000000,
+          per_file_limit: 2000000, repository_size_kb: 90000,
+          source_read_seconds: 1.6, time_budget_seconds: 40, per_file_timeout_seconds: 6,
         },
       };
       await route.fulfill({ response, json: payload });
@@ -123,12 +126,13 @@ async function api(pathname, method = 'GET') {
     await page.getByRole('button', { name: 'Repository and demo controls' }).click();
     await page.getByTestId('repository-coverage').waitFor();
     const coverageText = await page.getByTestId('repository-coverage').innerText();
-    assert(coverageText.includes('10 / 21') && coverageText.includes('No archive or clone'), 'Selective source coverage is incomplete');
-    assert((await page.locator('#repository-help').innerText()).includes('120 files / 4 MB'), 'Updated source bounds are absent');
+    assert(coverageText.includes('7 / 8') && coverageText.includes('No archive or clone'), 'Selective source/manifest coverage is incomplete');
+    assert(coverageText.includes('1 discovered manifests not read'), 'Manifest read misses are hidden');
+    assert((await page.locator('#repository-help').innerText()).includes('Manifest completeness and source coverage are reported independently'), 'Updated source coverage bounds are absent');
     await capture(page, 'repository-coverage.png');
     await page.getByRole('button', { name: 'Close drawer' }).click();
     await page.unroute('**/api/bootstrap');
-    checks.push('Selective 120-file source budget and partial-result disclosure');
+    checks.push('Manifest read misses and wider-source partial coverage are disclosed independently');
 
     await page.reload({ waitUntil: 'networkidle' });
     await page.setViewportSize({ width: 390, height: 844 });

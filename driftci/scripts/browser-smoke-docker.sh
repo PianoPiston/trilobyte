@@ -12,11 +12,11 @@ if [[ $# -gt 0 ]]; then
   shift
 fi
 if [[ $# -gt 0 ]]; then
-  echo "Use DRIFTCI_QA_SCRIPT=release-smoke.cjs or browser-smoke.cjs; extra arguments are ignored." >&2
+  echo "Use DRIFTCI_QA_SCRIPT=release-smoke.cjs, coverage-smoke.cjs or browser-smoke.cjs; extra arguments are ignored." >&2
   exit 2
 fi
 case "$SCRIPT" in
-  release-smoke.cjs|browser-smoke.cjs) ;;
+  release-smoke.cjs|coverage-smoke.cjs|browser-smoke.cjs) ;;
   *) echo "Unknown QA script. Select an explicit checked-in smoke script." >&2; exit 2 ;;
 esac
 
