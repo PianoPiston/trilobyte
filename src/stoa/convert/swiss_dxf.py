@@ -13,7 +13,7 @@ scripts/calibrate_swiss_fixtures.py):
 import datetime, functools, os, re
 from ..data import DATA_ROOT
 
-CONVERTER = "swiss_dxf@1.2"
+CONVERTER = "swiss_dxf@1.3"
 OUTDOOR = re.compile(r"balkon|balcon|balcony|loggia|terrass|sitzplatz|veranda|dachterrasse|patio|terrazz|garten|jardin|giardino", re.I)
 SHAFT_VOID = re.compile(r"schacht|gaine|cavedio|shaft|luftraum|vide|void|vuoto", re.I)
 STAIR = re.compile(r"treppe|escalier|scala|stair", re.I)
@@ -68,7 +68,7 @@ def convert(dxf_rel):
     from shapely.geometry import Polygon, Point, LineString, box
     from shapely.ops import unary_union
     doc = ezdxf.readfile(os.path.join(DATA_ROOT, dxf_rel))
-    rooms, units, texts, win_lines, doors, fix = [], [], [], [], [], []
+    rooms, units, texts, win_lines, doors, fix, walls = [], [], [], [], [], [], []
     for e in doc.modelspace():
         t, layer = e.dxftype(), e.dxf.layer
         if t == "LWPOLYLINE":
@@ -79,6 +79,8 @@ def convert(dxf_rel):
                 win_lines.append(LineString(pts) if len(pts) > 1 else Point(pts[0]))
             elif layer == "DOOR" and len(pts) == 5:
                 doors.append(box(*Polygon(pts).bounds))
+            elif layer == "WALL" and len(pts) >= 3:
+                walls.append(pts)
             elif layer == "FIXTURE" and pts:
                 fix.append((len(pts), bool(e.closed), LineString(pts) if len(pts) > 1 else Point(pts[0])))
         elif t in ("TEXT", "MTEXT") and layer == "ROOM_TEXT":
@@ -114,21 +116,32 @@ def convert(dxf_rel):
     for r in rooms:
         holes = [o["poly"] for o in rooms if o is not r and o["poly"].area < r["poly"].area
                  and r["poly"].intersection(o["poly"]).area > 0.9 * o["poly"].area]
-        r["net_poly_area"] = r["poly"].area - sum(h.area for h in holes)
+        r["net_poly_area"] = r["poly"].area - (unary_union(holes).area if holes else 0)  # holes can nest
+    # room category from the render fill (names are synthetic; see swiss_render.py)
+    stem = os.path.splitext(dxf_rel)[0]
+    png = os.path.join(DATA_ROOT, stem + ".png")
+    fills, reg_score = [None] * len(rooms), None
+    if os.path.exists(png) and walls and rooms:
+        from .swiss_render import room_fills
+        reg_score, fills = room_fills(png, walls, [list(r["poly"].exterior.coords) for r in rooms])
     out_rooms = []
     for i, r in enumerate(rooms):
         name = " ".join(r.get("names", [])) or None
         c = r["poly"].representative_point()
-        uid = next((out_units[k]["id"] for k, u in enumerate(units) if u["poly"].contains(c)), None)
+        # the smallest unit outline containing the room: unlabeled outlines nested in an apartment are cut-outs
+        # (stairwells, lifts, rooms of another unit), so their rooms do not belong to the apartment around them
+        ks = [k for k, u in enumerate(units) if u["poly"].contains(c)]
+        uid = out_units[min(ks, key=lambda k: units[k]["poly"].area)]["id"] if ks else None
         rid = f"R{i}"
         if uid:
             out_units[int(uid[1:])]["room_ids"].append(rid)
         pa = r.get("printed_area")
-        rtype = ("balcony" if name and OUTDOOR.search(name) else "shaft" if name and SHAFT_VOID.search(name)
+        outdoor = fills[i] > 0.3 if fills[i] is not None else bool(name and OUTDOOR.search(name))
+        rtype = ("balcony" if outdoor else "shaft" if name and SHAFT_VOID.search(name)
                  else "stair" if name and STAIR.search(name) else None)
         out_rooms.append({
             "id": rid, "name": name, "number": r.get("number"), "type": rtype,
-            "is_outdoor": bool(name and OUTDOOR.search(name)), "is_shaft": bool(name and SHAFT_VOID.search(name)),
+            "is_outdoor": outdoor, "render_outdoor_fill": None if fills[i] is None else round(fills[i], 3), "is_shaft": bool(name and SHAFT_VOID.search(name)),
             "area_m2": round(pa if pa is not None else r["net_poly_area"], 2), "area_method": "printed" if pa is not None else "polygon",
             "printed_area_m2": pa, "polygon_area_m2": round(r["poly"].area, 3), "unit_id": uid, "level_id": None,
             "geometry": _poly_item(r["poly"], b), "provenance": _prov("ROOM_OUTLINE+ROOM_TEXT")})
@@ -157,7 +170,6 @@ def convert(dxf_rel):
         rid = next((rr["id"] for rr, r in zip(out_rooms, rooms) if r["poly"].contains(c)), None)
         out_syms.append({"id": f"S{i}", "kind": kind, "room_id": rid, "geometry": _poly_item(box(*g.bounds), b),
                          "provenance": _prov(rule)})
-    stem = os.path.splitext(dxf_rel)[0]
     files = {ext: stem + "." + ext for ext in ("png", "pdf", "dxf") if os.path.exists(os.path.join(DATA_ROOT, stem + "." + ext))}
     warnings = []
     if len(win_lines) % 3:
@@ -171,7 +183,7 @@ def convert(dxf_rel):
         "frame": {"world_units": "m", "image_size_px": None, "world_bounds": list(b) if b else None,
                   "scale": {"m_per_px": None, "method": "dxf_native", "confidence": 1.0}},
         "levels": [], "units": out_units, "rooms": out_rooms, "doors": out_doors, "windows": wins,
-        "symbols": out_syms, "elements": [], "quality": {"warnings": warnings},
+        "symbols": out_syms, "elements": [], "quality": {"warnings": warnings, "render_registration": reg_score},
         "facts": {"window_count": {"value": len(win_lines) // 3, "provenance": _prov("WINDOW:polylines/3")}},
     }
 

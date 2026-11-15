@@ -512,9 +512,7 @@ async def ask(drawing_id, question, lang=None, use_vlm=True, use_cache=True, use
     elif conf is None or conf < C.CONF_AUTO:
         reasons.append(f"Confidence {conf if conf is None else round(conf, 2)} is below the auto-answer threshold {C.CONF_AUTO}.")
     for f in res.get("flags", []):
-        reasons.append({"unnamed_numbered_room": "An unnamed numbered room is included; check whether it belongs to the apartment.",
-                        "unprinted_area": "Some areas are not printed on the drawing and were computed from polygons.",
-                        "ambiguous_room_label": "Several rooms share this label: one area per room is listed.",
+        reasons.append({"ambiguous_room_label": "Several rooms share this label: one area per room is listed.",
                         "sum_of_printed_room_areas": "No printed total: this is the sum of the printed room areas.",
                         "several_totals": "Several different totals are printed on the drawing.",
                         "space_without_area": "Some spaces have no area in the model."}.get(f, f))

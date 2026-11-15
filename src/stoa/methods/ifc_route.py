@@ -22,7 +22,8 @@ KW = {
     "IfcLightFixture": r"light fixture|leucht|iluminat|lysarmatur|armatur|lamp",
 }
 MODEL_SCOPE = r"\bmodel|modell|modelu|mudel|modelo|modello|modelul"
-QUOTES = [r"'([^']+?)'(?=\s|,|\?|$|\))", r"„(.+?)[“”]", r"«\s*(.+?)\s*»", r"“(.+?)”", r'"(.+?)"', r"‘(.+?)’"]
+# an apostrophe inside a name (IMMUNIZ'N) sits between word characters, so it neither opens nor closes a quote
+QUOTES = [r"(?<!\w)'(.+?)'(?!\w)", r"„(.+?)[“”]", r"«\s*(.+?)\s*»", r"“(.+?)”", r'"(.+?)"', r"‘(.+?)’"]
 
 
 def quoted(q):
@@ -112,9 +113,21 @@ def geom_floor_area(e):
     st.set("use-world-coords", True)
     try:
         sh = ifcopenshell.geom.create_shape(st, e)
-        return float(S.get_footprint_area(sh.geometry))
     except Exception:
         return None
+    try:
+        a = float(S.get_footprint_area(sh.geometry))
+        if a > 1e-6:
+            return a
+    except Exception:
+        pass
+    # surface models (IfcFaceBasedSurfaceModel) have no solid footprint: union of the mesh triangles projected to XY
+    import numpy as np
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    v = np.array(sh.geometry.verts).reshape(-1, 3)
+    tris = [Polygon(v[t][:, :2]) for t in np.array(sh.geometry.faces).reshape(-1, 3)]
+    return float(unary_union([t for t in tris if t.area > 1e-9]).area)
 
 
 def space_area(s):

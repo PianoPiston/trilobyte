@@ -243,3 +243,36 @@ Cost: one fine-tuned VLM call per non-exact question (€0.013/1k) + OCR once pe
 questions (~€0.004/1k per call, 0.25-0.6 s); median server latency 1.2 s per question (words cached).
 Area / total / baseboard questions on scans have no dataset labels, so they are not in this table (checked by hand on
 uploaded test plans: printed totals "3h+k+s 63,5 m²", room areas and scale are read correctly from PDF text and OCR).
+
+## Area questions: render-fill room categories (2026-11-15), swiss_dwellings + ifc_models
+
+`scripts/area_errors.py` (exact-file route, one language per EN/translation pair, official 2% tolerance). Rules were
+developed on TRAIN error analysis, checked on VAL, then TEST was run once.
+
+| split | swiss n | swiss acc | ifc n | ifc acc | all n | **all acc** | auto-answered |
+|---|---|---|---|---|---|---|---|
+| train (before) | 4803 | 0.9846 | 773 | 0.9961 | 5576 | 0.9862 | 0.917 |
+| val (before) | 606 | 0.9686 | 430 | 0.9977 | 1036 | 0.9807 | 0.931 |
+| train | 4803 | 0.9998 | 773 | 1.0000 | 5576 | **0.9998** | 1.000 |
+| val | 606 | 1.0000 | 430 | 1.0000 | 1036 | **1.0000** | 1.000 |
+| **test** | 599 | 0.9983 | 52 | 1.0000 | 651 | **0.9985** | 1.000 |
+
+TEST per swiss rule: room 207/207, label 101/101, floor total 104/104, apartment 186/187. The old TEST numbers for the
+same cells were apartment 0.88 auto at 0.982 precision and floor total 0.78 auto (table above).
+
+What changed:
+- **Room category from the render fill** (`src/stoa/convert/swiss_render.py`). Room names on the sheets are synthetic and
+  the DXF has no category, so "unnamed numbered room" was a coin flip (gold included 320, excluded 76 on TRAIN). The
+  renderer fills outdoor spaces flat grey 228. The DXF walls are registered to the PNG (A3 at 150 dpi, 1:100 or 1:200,
+  offset by FFT cross-correlation) and a room is outdoor when > 30% of its eroded interior is that grey: 76/76 vs
+  320/320 on TRAIN. Apartment and floor totals = numbered rooms that are not outdoor (and not shafts by name).
+- **Nested holes**: a room's polygon area subtracts the union of the polygons inside it (holes nested in holes were
+  subtracted twice).
+- **Apartment membership**: a room belongs to the smallest unit outline containing it; unlabeled outlines nested in an
+  apartment are cut-outs (stairwells, lifts, a neighbour's corridor).
+- **IFC**: surface-model spaces (IfcFaceBasedSurfaceModel) get their footprint from the union of mesh triangles
+  projected to XY; quoted names may contain apostrophes (`IMMUNIZ'N ROOM`).
+
+Known misses: one train and one test apartment where part of the apartment is a separate unlabeled outline that
+touches no unit. 41 such outlines exist and gold excludes most of them, so they stay out. opening_design areas (9
+questions, one schedule sheet, TEST only) are not handled.

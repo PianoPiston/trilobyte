@@ -3,8 +3,8 @@
   intent = parse_intent(question)            # language-agnostic regexes (EN/DE/FR/IT/FI templates of the dataset)
   result = query(doc, intent)                # value + evidence items + confidence + flags
 
-Confidence = min(provenance confidence of the items used) x rule reliability, and rules with known ambiguity
-(calibrated on TRAIN/VAL only, see scripts/route_errors.py) return lower confidence or abstain ("needs check").
+Confidence = min(provenance confidence of the items used). Area rules (scripts/area_errors.py, TRAIN/VAL only):
+room 1.000/1.000, label 1.000/1.000, apartment 0.9993/1.000, floor 1.000/1.000 (train/val).
 """
 import os, re
 from .data import DATA_ROOT
@@ -98,18 +98,13 @@ def _ev(items, role="counted"):
     return out
 
 
-def _conf(items, base=1.0):
+def _conf(items):
     cs = [it.get("provenance", {}).get("confidence", 1.0) for it in items]
-    return round(base * (min(cs) if cs else 1.0), 4)
+    return round(min(cs) if cs else 1.0, 4)
 
 
-def _res(value, unit, items, rule, base=1.0, flags=None, conf=None):
-    return {"value": value, "unit": unit, "evidence": _ev(items), "rule": rule,
-            "confidence": conf if conf is not None else _conf(items, base), "flags": flags or []}
-
-
-def _has_symbols(doc, room):
-    return any(s.get("room_id") == room["id"] for s in doc.get("symbols", []))
+def _res(value, unit, items, rule):
+    return {"value": value, "unit": unit, "evidence": _ev(items), "rule": rule, "confidence": _conf(items), "flags": []}
 
 
 def query(doc, intent):
@@ -119,39 +114,26 @@ def query(doc, intent):
         rs = [r for r in rooms if (r.get("number") or "") == intent["number"]]
         if len(rs) != 1:
             return None
-        return _res(round(rs[0]["area_m2"], 2), "m2", rs, "room_area")  # train 0.995, val 0.995 incl. polygon areas
+        return _res(round(rs[0]["area_m2"], 2), "m2", rs, "room_area")
     if k == "area_unit":
         us = [u for u in units if (u.get("label") or "").upper() == intent["label"]]
         if not us:
             return None
         ids = set(sum((u["room_ids"] for u in us), []))
         rs = [r for r in rooms if r["id"] in ids]
-        # calibrated on train: unnamed rooms WITH a room number are real rooms (bathrooms whose name is not printed);
-        # unnamed and unnumbered polygons are shafts. Outdoor spaces are excluded by name.
-        inc = [r for r in rs if (r.get("name") or r.get("number")) and not r.get("is_outdoor")]
-        flags = []
-        # unnamed numbered rooms that contain sanitary symbols are bathrooms (included in gold 110/114 on train);
-        # without symbols it is a coin flip (172 in / 101 out) -> needs check
-        if any(not r.get("name") and r.get("number") and not _has_symbols(doc, r) for r in inc):
-            flags.append("unnamed_numbered_room")
+        # numbered indoor rooms; the indoor/outdoor category comes from the render fill (swiss_render.py)
+        inc = [r for r in rs if r.get("number") and not r.get("is_outdoor")]
         if not inc:
             return None
-        return _res(round(sum(r["area_m2"] for r in inc), 2), "m2", inc, "apartment_area", flags=flags)
+        return _res(round(sum(r["area_m2"] for r in inc), 2), "m2", inc, "apartment_area")
     if k == "area_label":
         rs = [r for r in rooms if (r.get("name") or "").lower() == intent["label"].lower()]
         if not rs:
             return None
         return _res(round(sum(r["area_m2"] for r in rs), 2), "m2", rs, "label_area")
     if k == "area_floor_numbered":
-        has_num = any(r.get("number") for r in rooms)
-        rs = [r for r in rooms if (r.get("number") or not has_num) and not r.get("is_outdoor") and not r.get("is_shaft")]
-        flags = []
-        if any(not r.get("name") and not _has_symbols(doc, r) for r in rs):
-            flags.append("unnamed_numbered_room")
-        # common areas (stairs, lifts, corridors outside apartments) without a printed area: gold differs from our
-        # polygon area in about 1/4 of floors (train) -> needs check
-        # (a separate "unprinted common-area" flag was tested on train: 177/178 correct -> not needed)
-        return _res(round(sum(r["area_m2"] for r in rs), 2), "m2", rs, "floor_area", flags=flags)
+        rs = [r for r in rooms if r.get("number") and not r.get("is_outdoor") and not r.get("is_shaft")]
+        return _res(round(sum(r["area_m2"] for r in rs), 2), "m2", rs, "floor_area")
     if k == "count_rooms_labelled":
         rs = [r for r in rooms if (r.get("name") or "").lower() == intent["label"].lower()]
         return _res(len(rs), "count", rs, "rooms_labelled")
@@ -194,12 +176,6 @@ def query(doc, intent):
     return None
 
 
-# --------------------------------------------------------------------------------------------------------------
-# Rule reliability, measured on TRAIN+VAL with scripts/route_errors.py (never test). Flags that mark an ambiguous
-# case lower the confidence below the auto-answer threshold so the router returns "needs check" instead.
-FLAG_CONF = {"unnamed_numbered_room": 0.5, "unprinted_area": 0.6}
-
-
 def doc_for(q_path):
     src = q_path.split("/")[1]
     if src == "swiss_dwellings":
@@ -222,9 +198,6 @@ def answer_std(q_path, question, doc=None):
     r = query(doc, intent)
     if r is None:
         return {"value": None, "abstain_reason": f"intent {intent['kind']} not answerable from file", "intent": intent}
-    conf = r["confidence"]
-    for f in r["flags"]:
-        conf = min(conf, FLAG_CONF.get(f, 0.5))
-    return {"value": r["value"], "unit": r["unit"], "evidence": r["evidence"], "confidence": conf,
+    return {"value": r["value"], "unit": r["unit"], "evidence": r["evidence"], "confidence": r["confidence"],
             "flags": r["flags"], "method": f"std:{doc['producer']['kind']}:{r['rule']}", "intent": intent,
             "drawing_id": doc["drawing_id"], "ground_truth_eligible": doc["ground_truth_eligible"]}
