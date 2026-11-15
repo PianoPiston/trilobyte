@@ -1,4 +1,4 @@
-import { AbsoluteFill, Audio, Img, Sequence, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Audio, Img, Sequence, getInputProps, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 
 const NAVY = "#14284a", ACCENT = "#e8743b", PAPER = "#f5f1e8";
 const FPS = 30;
@@ -186,7 +186,7 @@ export const Trilobyte = () => {
             {v.kind === "pipeline" && <Pipeline dur={dur} />}
             {v.kind === "split" && <Split s={v} dur={dur} />}
             <Sequence from={i === 0 ? 18 : 6}><Audio src={staticFile(sc.vo)} /></Sequence>
-            <Caption text={sc.say.replace("context dot dev", "context.dev")} dur={dur} />
+            {!getInputProps().noCaptions && <Caption text={sc.say.replace("context dot dev", "context.dev")} dur={dur} />}
           </Sequence>
         );
       })}
