@@ -107,6 +107,12 @@ Before any private repository or real organizational deployment, add gateway aut
 4. **Production hardening:** SSO/RBAC, separate per-tenant budgets and stores, immutable ownership/audit records, private-repository support, broader coverage and application-owned validation.
 5. Preserve `vercel/ai` for the public connected demo unless deliberately preparing another scenario. Never reset it just to satisfy the legacy visual-test assumptions.
 
+## Pitch assets
+
+- `PITCH.md` contains the product positioning and short submission description.
+- `pitch-video/` is a self-contained Remotion project with the narration script, generated audio, verified product captures and rebuild instructions.
+- The rendered local video is `pitch-video/out/driftci-pitch.mp4`: 1920×1080, 30 fps, 103.47 seconds, H.264 + stereo AAC. Its conceptual motion graphics are separate from verified product captures; the exact-head QA hold remains explicitly local.
+
 ## Repository and unrelated work
 
 Keep DriftCI standalone. Do not disturb Stoa, other Junction projects or root-level work that is not part of DriftCI. Source origin: `https://github.com/PianoPiston/trilobyte`; the code here is under `driftci/`. The current handoff accompanies the Release Room commit; the preceding checkpoint was `6c57e3c` (`Build Context.dev live web watches for DriftCI`).
