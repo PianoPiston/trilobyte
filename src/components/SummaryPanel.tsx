@@ -4,7 +4,7 @@ import type { Room, Takeoff, Totals } from "../lib/takeoff";
 const SOURCE: Record<Takeoff["source"], string> = {
   cad: "Rooms and areas are exact, computed from the CAD file.",
   bim: "Room areas are exact, read from the BIM model. Room outlines on the sheet are bounding boxes.",
-  segmented: "Rooms were found from the walls in the image. Areas printed on the drawing (marked P) are used where present; the others are measured and should be checked.",
+  segmented: "Estimated from the image. Spaces are the regions enclosed by walls, so stairwells, porches and closets count as spaces, and a wall drawn as a thin line can be missed, which merges two rooms. Doors and windows come from the symbol detector. Areas printed on the drawing (marked P) are used where present. Check the outlines on the plan.",
 };
 
 export default function SummaryPanel({ takeoff, m, x, room, concrete, onRoom, onAsk, onMaterials }: {
@@ -22,11 +22,11 @@ export default function SummaryPanel({ takeoff, m, x, room, concrete, onRoom, on
   const name = room ? roomName(room) : null;
   const figures: [string, string, string][] = room
     ? [["Floor area", fmt(x.floor), "m²"], ["Perimeter", fmt(x.perimeter), "m"], ["Wall faces", fmt(x.wallArea), "m²"]]
-    : [["Floor area", fmt(x.floor), "m²"], ["Rooms", String(x.rooms.length), ""], ["Doors", String(x.doors), ""],
+    : [["Floor area", fmt(x.floor), "m²"], [takeoff.source === "segmented" ? "Enclosed spaces" : "Rooms", String(x.rooms.length), ""], ["Doors", String(x.doors), ""],
        ["Windows", String(x.windows), ""], ["Room perimeters", fmt(x.perimeter), "m"], ["Wall faces", fmt(x.wallArea), "m²"]];
   const questions = room
     ? [`How much concrete do I need for ${name}?`, `How much does laminate flooring for ${name} cost?`, `How much paint do I need for ${name}?`, `What is the area of ${name}?`]
-    : ["How much concrete do I need for this floor?", "What do the materials for this floor cost?", "How much plasterboard do I need?", "How many doors are shown on this floor plan?", "How many windows are shown on this floor plan?"];
+    : ["How much concrete do I need for this floor?", "What do the materials for this floor cost?", "How many rooms are on this floor?", "What is the total floor area?", "How many doors are shown on this floor plan?"];
   return (
     <div className="summary">
       {room && (

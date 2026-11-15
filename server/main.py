@@ -226,21 +226,37 @@ async def takeoff(did: str, refresh: bool = False):
 
 # ---------- live material prices (context.dev web search) ----------
 
-UNIT_RE = {"m3": r"m\s?[3³]|kuutio(?:metri)?", "m2": r"m\s?[2²]|neliö(?:metri)?", "l": r"l(?:itra)?(?![a-zäö])",
+UNIT_RE = {"pcs": r"kpl|pcs|kappale", "m3": r"m\s?[3³]|kuutio(?:metri)?", "m2": r"m\s?[2²]|neliö(?:metri)?", "l": r"l(?:itra)?(?![a-zäö])",
            "kg": r"kg", "m": r"(?:jm|metri|m)(?![a-zäö0-9²³])"}
 MATERIALS = [
     {"key": "concrete", "label": "Ready-mix concrete C25/30", "unit": "m3", "range": (110, 330), "reference": 185.0,
      "queries": ["valmisbetoni C25/30 hinta €/m3 2026", "valmisbetonin kuutiohinta lattiabetoni C25/30 €/m3"]},
+    {"key": "mesh", "label": "Reinforcement mesh", "unit": "m2", "range": (1, 15), "reference": 3.5,
+     "queries": ["raudoitusverkko 6 mm 150 hinta €/m2", "raudoitusverkko hinta €/m² rautakauppa"]},
+    {"key": "insulation", "label": "EPS floor insulation 100 mm", "unit": "m2", "range": (3, 40), "reference": 9.0,
+     "queries": ["EPS 100 lattialevy 100 mm hinta €/m2", "lattiaeriste EPS 100 hinta €/m² rautakauppa"]},
+    {"key": "membrane", "label": "Vapour barrier membrane", "unit": "m2", "range": (0.15, 4), "reference": 0.6,
+     "queries": ["höyrynsulkumuovi 0,2 mm hinta €/m2", "höyrynsulkumuovi rulla hinta €/m² rautakauppa"]},
     {"key": "screed", "label": "Floor levelling compound", "unit": "kg", "range": (0.3, 4), "reference": 0.9,
      "queries": ["lattiatasoite 20 kg säkki hinta €/kg", "weber vetonit lattiatasoite hinta €/kg rautakauppa"]},
     {"key": "flooring", "label": "Laminate flooring", "unit": "m2", "range": (6, 70), "reference": 19.9,
      "queries": ["laminaatti hinta €/m2 rautakauppa", "laminaatti KL32 8 mm €/m² tarjous"]},
+    {"key": "tiles", "label": "Floor tiles", "unit": "m2", "range": (8, 120), "reference": 29.0,
+     "queries": ["lattialaatta kylpyhuone hinta €/m2", "klinkkerilaatta lattia hinta €/m² rautakauppa"]},
     {"key": "plasterboard", "label": "Plasterboard 13 mm", "unit": "m2", "range": (1.5, 12), "reference": 3.2,
      "queries": ["kipsilevy 13 mm 1200x2600 hinta €/m2", "kipsilevy EK 13 hinta €/m² rautakauppa"]},
+    {"key": "primer", "label": "Wall primer", "unit": "l", "range": (3, 40), "reference": 9.0,
+     "queries": ["pohjamaali sisäseinä 9 l hinta €/l", "esimaali sisäkäyttöön hinta €/l rautakauppa"]},
     {"key": "paint", "label": "Interior wall paint", "unit": "l", "range": (3, 40), "reference": 11.0,
      "queries": ["sisämaali seinämaali 9 l hinta €/l", "seinämaali valkoinen himmeä hinta €/l rautakauppa"]},
+    {"key": "ceilingpaint", "label": "Ceiling paint", "unit": "l", "range": (3, 40), "reference": 10.0,
+     "queries": ["kattomaali 9 l hinta €/l", "kattomaali valkoinen täyshimmeä hinta €/l rautakauppa"]},
     {"key": "skirting", "label": "Skirting board", "unit": "m", "range": (0.8, 15), "reference": 3.5,
      "queries": ["jalkalista MDF valkoinen hinta €/m", "jalkalista 12x58 hinta €/m rautakauppa"]},
+    {"key": "moulding", "label": "Ceiling moulding", "unit": "m", "range": (0.8, 15), "reference": 3.0,
+     "queries": ["kattolista MDF valkoinen hinta €/m", "kattolista 21x21 hinta €/m rautakauppa"]},
+    {"key": "doors", "label": "Interior door with frame", "unit": "pcs", "range": (60, 900), "reference": 189.0,
+     "queries": ["väliovi karmilla 9x21 hinta €/kpl", "sisäovi valkoinen 9x21 hinta € rautakauppa"]},
 ]
 PRICES_FILE = os.path.join(CACHE, "prices.json")
 PRICE_TTL = 12 * 3600

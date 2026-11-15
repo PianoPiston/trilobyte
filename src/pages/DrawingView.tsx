@@ -3,7 +3,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, boxOf, unionBox } from "../api";
 import type { Answer, Candidate, DrawingFull, Evidence, Word } from "../api";
 import { DEFAULTS, fetchPrices, fetchTakeoff, fmt, materialLines, roomName, totals } from "../lib/takeoff";
-import { materialIntent } from "../lib/intent";
+import { takeoffIntent } from "../lib/intent";
 import type { Intent } from "../lib/intent";
 import type { Prices, Takeoff } from "../lib/takeoff";
 import Viewer from "../components/Viewer";
@@ -57,7 +57,7 @@ export default function DrawingView() {
   const ask = async (question: string, dd = d) => {
     if (!dd || question.trim().length < 2) return;
     setQ(question); setErr(null); setSel(null); setCand(null); setTab("answer"); setMode("2d");
-    const intent = takeoff && (ownScale ?? takeoff.scale.m_per_px) ? materialIntent(question, takeoff.rooms) : null;
+    const intent = takeoff && (ownScale ?? takeoff.scale.m_per_px) ? takeoffIntent(question, takeoff.rooms) : null;
     setLocal(intent);
     if (intent) {
       setAns(null);
@@ -116,7 +116,7 @@ export default function DrawingView() {
   if (!d) return <div className="page"><div className={err ? "error" : "loading"}>{err ? `Could not load the drawing: ${err}` : "Loading…"}</div></div>;
 
   const evidence: Evidence[] = local
-    ? (local.rooms ?? takeoff?.rooms ?? []).map((r) => ({ id: r.id, label: `${roomName(r)}${m ? ` · ${fmt(r.area_m2 ?? r.printed_area_m2 ?? r.area_px * m * m)} m²` : ""}`, polygon: r.polygon }))
+    ? (local.rooms ?? takeoff?.rooms ?? []).filter((r) => !r.shaft).map((r) => ({ id: r.id, label: `${roomName(r)}${m ? ` · ${fmt(r.area_m2 ?? r.printed_area_m2 ?? r.area_px * m * m)} m²` : ""}`, polygon: r.polygon }))
     : (cand || ans)?.evidence || [];
   const pickCand = (c: Candidate | null) => {
     setCand(c); setSel(null);
@@ -242,7 +242,7 @@ export default function DrawingView() {
                     <button key={i} onClick={() => ask(e.question)} title={e.question}>{e.question}</button>)}</div>
                 </div>
               )}
-              {evidence.length > 0 && !(local && !local.rooms) && <EvidenceList items={evidence} hover={hover} sel={sel} onHover={setHover}
+              {evidence.length > 0 && !(local?.kind === "material" && !local.rooms) && <EvidenceList items={evidence} hover={hover} sel={sel} onHover={setHover}
                 onPick={(e) => { setSel(e.id); const b = boxOf(e); if (b) viewer.current?.focus(b); }} />}
             </>
           )}

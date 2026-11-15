@@ -1,5 +1,5 @@
 import { UNIT, eur, fmt, materialLines, roomArea, roomName, totals } from "../lib/takeoff";
-import type { Assumptions, Prices, Takeoff } from "../lib/takeoff";
+import type { Assumptions, Prices, Takeoff, Totals } from "../lib/takeoff";
 import type { Intent } from "../lib/intent";
 
 const host = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return u; } };
@@ -16,6 +16,7 @@ export default function TakeoffAnswer({ intent, takeoff, m, a, prices, onMateria
   const total = shown.reduce((s, l) => s + l.qty * (price(l.key)?.price ?? 0), 0);
   const p = price(main.key);
   const exact = takeoff.source !== "segmented";
+  if (intent.kind !== "material") return <MeasureAnswer intent={intent} takeoff={takeoff} m={m} x={x} exact={exact} />;
   return (
     <div className={"answer-card " + (exact ? "st-ok" : "st-check")}>
       <div className="answer-top">
@@ -45,6 +46,34 @@ export default function TakeoffAnswer({ intent, takeoff, m, a, prices, onMateria
         </div>
       )}
       <button className="link" onClick={onMaterials}>Change slab thickness, waste or prices in Materials →</button>
+    </div>
+  );
+}
+
+const SEGMENTED_REASON = "Spaces are regions enclosed by walls in the image: stairwells, porches and closets count, and a wall drawn as a thin line can be missed, merging two rooms. Check the highlighted outlines.";
+
+// Room count or floor area, from exactly the rooms listed in the Summary and outlined on the plan
+function MeasureAnswer({ intent, takeoff, m, x, exact }: { intent: Intent; takeoff: Takeoff; m: number; x: Totals; exact: boolean }) {
+  const noun = exact ? "room" : "enclosed space";
+  const outdoor = x.rooms.filter((r) => r.outdoor).length;
+  const printed = x.rooms.filter((r) => r.printed_area_m2 != null).length;
+  return (
+    <div className={"answer-card " + (exact ? "st-ok" : "st-check")}>
+      <div className="answer-top">
+        <span className="verdict">{exact ? "Answered from the CAD/BIM geometry" : "Needs check"}</span>
+        <span className="method">{exact ? (takeoff.source === "cad" ? "Exact from CAD" : "Exact from IFC model") : "Wall segmentation"}</span>
+      </div>
+      {intent.kind === "count" ? (
+        <div className="answer-value"><span className="v">{x.rooms.length}</span><span className="u">{noun}{x.rooms.length === 1 ? "" : "s"}</span></div>
+      ) : (
+        <div className="answer-value"><span className="v">{fmt(x.floor)}</span><span className="u">m²</span></div>
+      )}
+      <p className="answer-note">
+        {intent.kind === "count"
+          ? <>On {intent.scope}{outdoor > 0 && <>, including {outdoor} outdoor space{outdoor === 1 ? "" : "s"} such as balconies</>}. Every counted {noun} is outlined on the plan and listed below.</>
+          : <>Floor area of {intent.scope}, the sum of the {x.rooms.length} {noun}s listed below{outdoor > 0 && <> including {outdoor} outdoor</>}.{!exact && printed > 0 && <> {printed} area{printed === 1 ? " is" : "s are"} printed on the drawing, the rest are measured at the estimated scale.</>}</>}
+      </p>
+      {!exact && <ul className="reasons"><li>{SEGMENTED_REASON}</li>{intent.kind === "area" && <li>Scale: {takeoff.scale.method}.</li>}</ul>}
     </div>
   );
 }
