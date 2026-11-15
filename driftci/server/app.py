@@ -2,13 +2,17 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
+import json
+import re
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Literal
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from .config import Settings
@@ -18,6 +22,7 @@ from .github import GitHubError
 from .remediation import RemediationError
 from .repository import RepositoryError
 from .service import DriftService, signal_sort
+from .util import safe_excerpt, stable_id, utcnow
 
 
 class SignalRequest(BaseModel):
@@ -41,6 +46,12 @@ class SignalStateRequest(BaseModel):
     state: Literal["acknowledged", "resolved", "monitoring", "needs_action"]
 
 
+class ReleaseDecisionRequest(BaseModel):
+    decision: Literal["ready", "hold"]
+    reviewer: str = Field(min_length=1, max_length=80)
+    note: str = Field(default="", max_length=1000)
+
+
 def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
     config = settings or Settings.from_env()
 
@@ -52,6 +63,8 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
             app.state.service = DriftService(db, config, http)
             app.state.scan_lock = asyncio.Lock()
             app.state.last_scan_requested = float("-inf")
+            app.state.release_lock = asyncio.Lock()
+            app.state.last_release_requested = float("-inf")
 
             async def periodic_watch():
                 while True:
@@ -65,18 +78,33 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
                     except Exception as exc:
                         db.add_activity("watcher", "Scheduled source refresh failed", type(exc).__name__)
 
+            async def periodic_releases():
+                while True:
+                    await asyncio.sleep(config.release_poll_interval_seconds)
+                    try:
+                        await gated_release(lambda: app.state.service.refresh_releases(), force=True)
+                    except HTTPException:
+                        pass
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        db.add_activity("watcher", "Release event poll failed", type(exc).__name__)
+
             watcher = asyncio.create_task(periodic_watch()) if config.watch_interval_seconds > 0 and not config.offline else None
+            release_watcher = asyncio.create_task(periodic_releases()) if config.release_poll_interval_seconds > 0 and not config.offline else None
             app.state.watcher = watcher
+            app.state.release_watcher = release_watcher
             try:
                 yield
             finally:
-                if watcher:
-                    watcher.cancel()
-                    with suppress(asyncio.CancelledError):
-                        await watcher
+                for task in (watcher, release_watcher):
+                    if task:
+                        task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await task
                 db.close()
 
-    app = FastAPI(title="DriftCI", version="1.1.0", lifespan=lifespan)
+    app = FastAPI(title="DriftCI", version="2.0.0", lifespan=lifespan)
 
     async def gated_scan(operation, force: bool = False):
         """Serialize network refreshes and rate-limit public callers without leaking credentials."""
@@ -98,6 +126,30 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
             app.state.last_scan_requested = asyncio.get_running_loop().time()
             return await operation()
 
+    async def gated_release(operation, force: bool = False):
+        """Release polling shares the full-scan lock to avoid duplicate source work."""
+        release_lock, scan_lock = app.state.release_lock, app.state.scan_lock
+
+        def check_cooldown():
+            if force:
+                return
+            elapsed = asyncio.get_running_loop().time() - app.state.last_release_requested
+            remaining = config.release_manual_cooldown_seconds - elapsed
+            if remaining > 0:
+                retry = max(1, int(remaining + .5))
+                raise HTTPException(429, f"Release metadata was refreshed recently. Retry in {retry} seconds.", headers={"Retry-After": str(retry)})
+
+        if release_lock.locked():
+            raise HTTPException(429, "A release refresh is already in progress.", headers={"Retry-After": "3"})
+        if scan_lock.locked():
+            raise HTTPException(429, "A full source scan is in progress. Retry shortly.", headers={"Retry-After": "3"})
+        check_cooldown()
+        async with release_lock:
+            async with scan_lock:
+                check_cooldown()
+                app.state.last_release_requested = asyncio.get_running_loop().time()
+                return await operation()
+
     @app.middleware("http")
     async def response_headers(request: Request, call_next):
         response = await call_next(request)
@@ -113,6 +165,11 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     def health(request: Request):
         payload = service(request).health()
         payload["watcher"] = {"enabled": config.watch_interval_seconds > 0 and not config.offline, "interval_seconds": config.watch_interval_seconds, "scan_cooldown_seconds": config.scan_cooldown_seconds, "implementation": "local polling with independent Context.dev cache and credit budget"}
+        payload["release_stream"].update({
+            "enabled": config.release_poll_interval_seconds > 0 and not config.offline,
+            "sse_path": "/api/events/stream", "webhook_path": "/api/github/webhook" if config.release_webhook_secret else None,
+            "status_cache_ttl_seconds": config.status_cache_ttl_seconds, "status_hot_ttl_seconds": config.status_hot_ttl_seconds,
+        })
         return payload
 
     @app.get("/api/bootstrap")
@@ -134,6 +191,116 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     @app.post("/api/scan")
     async def scan(request: Request):
         return await gated_scan(lambda: service(request).scan())
+
+    @app.post("/api/releases/refresh")
+    async def refresh_releases(request: Request):
+        return await gated_release(lambda: service(request).refresh_releases())
+
+    @app.post("/api/releases/{pr_id}/decision")
+    def release_decision(pr_id: str, body: ReleaseDecisionRequest, request: Request):
+        if not re.fullmatch(r"pr-[1-9][0-9]{0,8}", pr_id):
+            raise HTTPException(404, "Release pull request not found")
+        try:
+            return service(request).record_release_decision(pr_id, body.decision, body.reviewer, body.note)
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except RemediationError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.get("/api/releases/{pr_id}/report")
+    def release_report(pr_id: str, request: Request):
+        if not re.fullmatch(r"pr-[1-9][0-9]{0,8}", pr_id):
+            raise HTTPException(404, "Release pull request not found")
+        try:
+            filename, report = service(request).release_report(pr_id)
+            return PlainTextResponse(report, media_type="text/markdown", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.get("/api/events/stream")
+    async def event_stream(request: Request, after: int = Query(0, ge=0, le=9_223_372_036_854_775_807)):
+        """Replay and follow monotonically sequenced events; never synthesize web changes."""
+        if request.headers.get("last-event-id"):
+            try:
+                after = int(request.headers["last-event-id"])
+            except ValueError as exc:
+                raise HTTPException(400, "Last-Event-ID must be the numeric event cursor") from exc
+            if after < 0:
+                raise HTTPException(400, "Last-Event-ID must be non-negative")
+
+        async def stream():
+            cursor = after
+            ticks = 0
+            yield ": release stream connected\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                rows = request.app.state.service.db.list_release_events(cursor, limit=200)
+                for event in rows:
+                    cursor = event["seq"]
+                    summary = {key: event.get(key) for key in ("seq", "kind", "title", "pr_number", "signal_id", "baseline", "source")}
+                    yield f"id: {cursor}\nevent: update\ndata: {json.dumps(summary, ensure_ascii=False)}\n\n"
+                await asyncio.sleep(1)
+                ticks += 1
+                if ticks >= 15:
+                    ticks = 0
+                    yield ": keepalive\n\n"
+
+        return StreamingResponse(stream(), media_type="text/event-stream", headers={"X-Accel-Buffering": "no"})
+
+    @app.post("/api/github/webhook")
+    async def github_webhook(request: Request):
+        """Authenticate, bound and deduplicate a hook before reconciling GitHub state."""
+        if not config.release_webhook_secret or config.offline:
+            raise HTTPException(503, "GitHub webhooks require DRIFTCI_GITHUB_WEBHOOK_SECRET and live mode")
+        declared = request.headers.get("Content-Length", "")
+        if declared.isdigit() and int(declared) > 512_000:
+            raise HTTPException(413, "Webhook payload exceeds 512 KB")
+        raw = bytearray()
+        async for chunk in request.stream():
+            raw.extend(chunk)
+            if len(raw) > 512_000:
+                raise HTTPException(413, "Webhook payload exceeds 512 KB")
+        supplied = request.headers.get("X-Hub-Signature-256", "")
+        expected = "sha256=" + hmac.new(config.release_webhook_secret.encode(), raw, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(supplied, expected):
+            raise HTTPException(401, "Invalid webhook signature")
+        delivery = request.headers.get("X-GitHub-Delivery", "")
+        event_name = request.headers.get("X-GitHub-Event", "")
+        if not re.fullmatch(r"[a-fA-F0-9-]{8,100}", delivery):
+            raise HTTPException(400, "Missing or invalid X-GitHub-Delivery")
+        if event_name not in {"ping", "pull_request", "pull_request_review", "check_run", "check_suite", "status"}:
+            return {"accepted": True, "ignored_event": safe_excerpt(event_name, 60)}
+        try:
+            payload = json.loads(raw)
+        except (ValueError, UnicodeError) as exc:
+            raise HTTPException(400, "Webhook body must be valid JSON") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(400, "Webhook body must be a JSON object")
+        repository = (payload.get("repository") or {}).get("full_name")
+        if event_name != "ping" and repository != service(request).db.workspace().get("repository"):
+            raise HTTPException(409, "Webhook repository does not match the connected workspace")
+        delivery_id = stable_id("event", "github-delivery", delivery)
+        db = service(request).db
+        if db.has_release_event(delivery_id):
+            return {"accepted": True, "duplicate": True, "delivery": delivery}
+        pr = payload.get("pull_request") if isinstance(payload.get("pull_request"), dict) else {}
+        number = pr.get("number")
+        pr_number = number if isinstance(number, int) and not isinstance(number, bool) and number > 0 else None
+        if event_name != "ping":
+            result = await gated_release(lambda: service(request).refresh_releases(pr_number))
+            release_source = next((source for source in result["sources"] if source["id"] == "src-github-releases"), None)
+            if release_source and release_source.get("status") == "error":
+                raise HTTPException(502, "GitHub reconciliation failed; this delivery was not marked complete and can be retried")
+        now = utcnow()
+        db.add_release_event({
+            "id": delivery_id, "kind": "webhook", "title": "Verified GitHub webhook received",
+            "detail": f"{event_name} delivery reconciled{(' for PR #' + str(pr_number)) if pr_number else ''}.",
+            "occurred_at": now, "received_at": now, "pr_id": f"pr-{pr_number}" if pr_number else None,
+            "pr_number": pr_number, "url": pr.get("html_url"), "head_sha": (pr.get("head") or {}).get("sha") if isinstance(pr.get("head"), dict) else None,
+            "source": "GitHub webhook", "mode": "verified", "baseline": False, "delivery": delivery,
+        })
+        return {"accepted": True, "duplicate": False, "delivery": delivery, "pr_number": pr_number}
 
     @app.post("/api/signals/{ident}/state")
     def signal_state(ident: str, body: SignalStateRequest, request: Request):

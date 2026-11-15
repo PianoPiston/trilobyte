@@ -64,6 +64,8 @@ def capture_change(spec: DocumentSpec, text: str, previous: dict, retrieved_at: 
 
 
 def change_kind(observation: dict, spec: DocumentSpec) -> str:
+    if spec.category == "status":
+        return "status"
     if spec.category == "pricing":
         return "pricing"
     text = " ".join(observation.get("added", []) + observation.get("removed", [])).lower()
@@ -73,6 +75,9 @@ def change_kind(observation: dict, spec: DocumentSpec) -> str:
 
 
 def change_severity(observation: dict, spec: DocumentSpec) -> str:
+    added = " ".join(observation.get("added", [])).lower()
+    if spec.category == "status" and re.search(r"outage|degraded|investigating|under maintenance", added):
+        return "high"
     text = " ".join(observation.get("added", []) + observation.get("removed", [])).lower()
     if re.search(r"security|vulnerab|deprecat|retir|shutdown|shut down|breaking", text):
         return "high"

@@ -13,7 +13,7 @@ from urllib.parse import quote, urlparse
 
 import httpx
 
-from .scanner import CONFIG_SUFFIXES, MANIFEST_NAMES
+from .scanner import CONFIG_SUFFIXES, MANIFEST_NAMES, is_test_path
 
 
 class RepositoryError(ValueError):
@@ -44,7 +44,7 @@ IGNORED_DIRECTORIES = {
     ".git", ".next", ".svn", ".hg", "__pycache__", "node_modules", "bower_components",
     "dist", "build", "coverage", "target", "vendor", "venv", ".venv", ".tox",
     ".gradle", ".terraform", ".idea", ".vscode", ".cache",
-    "test", "tests", "fixtures", "testdata", "test_data", "__mocks__", "docs", "documentation",
+    "test", "tests", "fixtures", "__fixtures__", "testdata", "test_data", "snapshots", "__snapshots__", "__mocks__", "docs", "documentation",
 }
 SAFE_SHA = re.compile(r"^[0-9a-fA-F]{40,64}$")
 SAFE_BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,254}")
@@ -76,7 +76,7 @@ def safe_relative_path(value: object) -> str | None:
 
 def supported_source(path: str) -> bool:
     parts = PurePosixPath(path).parts
-    if any(part in IGNORED_DIRECTORIES for part in parts):
+    if any(part in IGNORED_DIRECTORIES for part in parts) or is_test_path(path):
         return False
     name = parts[-1]
     # Documentation and media are intentionally not downloaded. Requirements and
@@ -85,13 +85,20 @@ def supported_source(path: str) -> bool:
 
 
 def candidate_priority(path: str) -> tuple[int, int, str]:
-    name = PurePosixPath(path).name
-    depth = len(PurePosixPath(path).parts)
-    if name in MANIFEST_NAMES:
+    """Prioritize application evidence over example-app boilerplate in large trees."""
+    parts = PurePosixPath(path).parts
+    name = parts[-1]
+    depth = len(parts)
+    if any(part in {"example", "examples", "sample", "samples", "demo", "demos", "playground", "benchmark", "benchmarks"} for part in parts[:-1]):
+        return 5, depth, path
+    if name in MANIFEST_NAMES and depth == 1:
         return 0, depth, path
-    if any(part in {"src", "app", "lib", "server", "api", "config"} for part in PurePosixPath(path).parts[:-1]):
-        return 1, depth, path
-    return 2, depth, path
+    if any(part in {"src", "app", "lib", "server", "api", "config"} for part in parts[:-1]):
+        provider_focus = any(part in {"openai", "anthropic", "claude"} for part in parts[:-1])
+        return 1 if provider_focus else 2, depth, path
+    if name in MANIFEST_NAMES:
+        return 3, depth, path
+    return 4, depth, path
 
 
 async def _api_json(http: httpx.AsyncClient, url: str, headers: dict[str, str], label: str) -> dict:
@@ -264,7 +271,7 @@ async def read_public(
     }
     workspace = {
         "id": f"github-{owner}-{repo}", "name": metadata.get("name") or repo,
-        "repository": f"{owner}/{repo}", "branch": branch, "environment": "Production",
+        "repository": f"{owner}/{repo}", "branch": branch, "environment": "Read-only repository",
         "source": "github", "coverage": coverage,
     }
     return workspace, files

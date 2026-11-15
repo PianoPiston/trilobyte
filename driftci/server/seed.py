@@ -140,6 +140,7 @@ def deprecation_signal(files: dict[str, str] | None = None, receipt: dict | None
         "kev": False,
         "fixed_version": None,
         "replacement": "gpt-4.1",
+        "model": "gpt-4-0314",
         "reachability": "confirmed",
         "reachability_reason": "Exact model identifiers in source confirm configuration, not invocation at runtime.",
         "recommendation": "Replace the snapshot identifier with gpt-4.1 and run the existing evaluation workflow before deployment.",

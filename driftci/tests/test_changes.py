@@ -31,7 +31,7 @@ def test_snapshot_establishes_baseline_then_records_compact_diff():
 def test_watchlist_is_relevant_capped_and_custom_first():
     files = read_text_tree(EXAMPLE)
     specs = documents_for(files, limit=4)
-    assert [spec.key for spec in specs] == ["openai-deprecations", "openai-pricing", "openai-python-releases", "next-releases"]
+    assert [spec.key for spec in specs] == ["openai-deprecations", "openai-pricing", "openai-status", "openai-python-releases"]
     assert all(spec.category == "deprecations" for spec in documents_for(files, limit=1))
     custom = validate_watch_url("https://status.example.com/openai", "Provider status")
     specs = documents_for(files, [custom], limit=1)
@@ -98,16 +98,19 @@ def test_live_watch_refresh_creates_observations_search_receipts_and_usage(tmp_p
         baseline = client.post("/api/scan")
         assert baseline.status_code == 200, baseline.text
         assert baseline.json()["changes"] == []
-        assert baseline.json()["metrics"]["context_queries"] == 6
-        assert baseline.json()["metrics"]["context_credits"] == 7
+        assert baseline.json()["release"]["counts"]["live_events"] == 0
+        assert baseline.json()["metrics"]["context_queries"] == 7
+        assert baseline.json()["metrics"]["context_credits"] == 8
         phase["value"] = 1
         refreshed = client.post("/api/scan")
         assert refreshed.status_code == 200, refreshed.text
         payload = refreshed.json()
+        # The five-minute status cache intentionally avoids a second scrape here.
+        assert next(row for row in payload["sources"] if row["id"] == "src-openai-status")["status"] == "cached"
         assert len(payload["changes"]) == 4
         assert len([row for row in payload["signals"] if row["kind"] in {"pricing", "api"}]) == 4
-        assert payload["metrics"]["context_queries"] == 12
-        assert payload["metrics"]["context_credits"] == 14
+        assert payload["metrics"]["context_queries"] == 13
+        assert payload["metrics"]["context_credits"] == 15
         assert "gpt-4-0314" in payload["discoveries"][0]["matched_terms"]
         assert "script" not in payload["discoveries"][0]["summary"]
         assert all("_snapshot" not in source for source in payload["sources"])
@@ -116,7 +119,7 @@ def test_live_watch_refresh_creates_observations_search_receipts_and_usage(tmp_p
         assert pricing["evidence"]
         assert client.post(f"/api/signals/{pricing['id']}/state", json={"state": "resolved"}).json()["state"] == "resolved"
         health = client.get("/api/health").json()["context_dev"]["usage"]
-        assert health["daily_credits"] == 14
+        assert health["daily_credits"] == 15
         assert health["daily_credit_limit"] == 80
 
 

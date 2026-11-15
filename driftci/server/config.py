@@ -29,6 +29,13 @@ class Settings:
     repository_connect_timeout_seconds: int = 90
     vulnerability_package_limit: int = 32
     osv_batch_timeout_seconds: int = 25
+    release_webhook_secret: str | None = None
+    release_poll_interval_seconds: int = 90
+    release_manual_cooldown_seconds: int = 10
+    release_detail_limit: int = 2
+    status_cache_ttl_seconds: int = 300
+    status_hot_ttl_seconds: int = 45
+    status_hot_window_seconds: int = 900
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -56,4 +63,11 @@ class Settings:
             repository_connect_timeout_seconds=int(os.environ.get("DRIFTCI_REPOSITORY_CONNECT_TIMEOUT_SECONDS", "90")),
             vulnerability_package_limit=int(os.environ.get("DRIFTCI_OSV_PACKAGE_LIMIT", "32")),
             osv_batch_timeout_seconds=int(os.environ.get("DRIFTCI_OSV_BATCH_SECONDS", "25")),
+            release_webhook_secret=os.environ.get("DRIFTCI_GITHUB_WEBHOOK_SECRET") or None,
+            release_poll_interval_seconds=max(0, int(os.environ.get("DRIFTCI_RELEASE_POLL_SECONDS", "90"))),
+            release_manual_cooldown_seconds=max(0, int(os.environ.get("DRIFTCI_RELEASE_MANUAL_COOLDOWN_SECONDS", "10"))),
+            release_detail_limit=min(5, max(0, int(os.environ.get("DRIFTCI_RELEASE_DETAIL_LIMIT", "2")))),
+            status_cache_ttl_seconds=max(60, int(os.environ.get("DRIFTCI_STATUS_CACHE_TTL", "300"))),
+            status_hot_ttl_seconds=max(30, int(os.environ.get("DRIFTCI_STATUS_HOT_CACHE_TTL", "45"))),
+            status_hot_window_seconds=max(60, int(os.environ.get("DRIFTCI_STATUS_HOT_WINDOW_SECONDS", "900"))),
         )

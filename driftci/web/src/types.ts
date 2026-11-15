@@ -48,6 +48,9 @@ export interface Summary {
   mean_response_hours: number;
   watched_sources: number;
   observed_changes: number;
+  open_prs: number;
+  release_reviews: number;
+  live_release_events: number;
 }
 
 export interface SourceReceipt {
@@ -112,6 +115,7 @@ export interface Signal {
   fixed_version: string | null;
   replacement: string | null;
   reachability: string | null;
+  reachability_reason?: string | null;
   recommendation: string;
   evidence: CodeEvidence[];
   source_receipts: SourceReceipt[];
@@ -120,6 +124,7 @@ export interface Signal {
   watch_id?: string;
   change?: WebObservation;
   reviewed_at?: string | null;
+  observed_at?: string | null;
 }
 
 export interface Dependency {
@@ -191,6 +196,117 @@ export interface Incident {
   signal_id: string | null;
 }
 
+export interface ReleaseEvidence {
+  id: string;
+  kind: SignalKind;
+  severity: Severity;
+  state: SignalState;
+  title: string;
+  summary: string;
+  provider: string;
+  created_at: string;
+  observed_at: string | null;
+  matched_files: string[];
+  evidence: CodeEvidence[];
+  source_receipts: SourceReceipt[];
+  change: WebObservation | null;
+}
+
+export interface ReleaseDecision {
+  id: string;
+  pr_id: string;
+  head_sha: string;
+  evidence_hash: string;
+  decision: 'ready' | 'hold';
+  reviewer: string;
+  note: string;
+  created_at: string;
+  scope: string;
+}
+
+export interface PullRequest {
+  id: string;
+  number: number;
+  state: 'open' | 'closed';
+  title: string;
+  repository: string;
+  url: string;
+  author: string;
+  draft: boolean;
+  head_sha: string;
+  head_ref: string;
+  base_ref: string;
+  created_at: string;
+  updated_at: string;
+  merged_at: string | null;
+  merged: boolean;
+  changed_files: number;
+  files: Array<{ path: string; status: string; additions: number; deletions: number; changes: number; patch_complete?: boolean }>;
+  files_complete: boolean;
+  detail_errors?: string[];
+  reviews_complete: boolean;
+  checks_complete: boolean;
+  detail_complete: boolean;
+  reviews: Array<{ id: string; state: string; reviewer: string; submitted_at: string | null; commit_sha: string | null; url: string | null }>;
+  checks: Array<{ id: string; name: string; status: string; conclusion: string | null; started_at: string | null; completed_at: string | null; url: string | null }>;
+  check_summary: { state: string; total: number; pending: number; failed: number; passed: number };
+  external_evidence: ReleaseEvidence[];
+  active_external_count: number;
+  latest_external_observation: string | null;
+  latest_remote_approval: string | null;
+  current_head_approval: string | null;
+  outdated_remote_review: boolean;
+  evidence_hash: string;
+  release_decision: ReleaseDecision | null;
+  expired_release_decision: ReleaseDecision | null;
+  readiness: string;
+}
+
+export interface ReleaseEvent {
+  seq: number;
+  kind: string;
+  title: string;
+  detail: string;
+  occurred_at: string;
+  received_at: string;
+  pr_id: string | null;
+  pr_number: number | null;
+  url: string | null;
+  head_sha: string | null;
+  source: string;
+  mode: string;
+  baseline: boolean;
+  affected_pr_numbers?: number[];
+  signal_id?: string;
+  decision?: 'ready' | 'hold';
+}
+
+export interface ReleaseStreamStatus {
+  enabled?: boolean;
+  implementation: string;
+  poll_interval_seconds: number;
+  webhook_configured: boolean;
+  last_polled_at?: string;
+  last_success_at?: string;
+  last_transport_mode?: string;
+  last_error?: string | null;
+  detail_pending?: number;
+  release_requests?: number;
+  rate_limit_remaining?: number;
+  sse_path?: string;
+  webhook_path?: string | null;
+  status_cache_ttl_seconds?: number;
+  status_hot_ttl_seconds?: number;
+}
+
+export interface ReleaseData {
+  pull_requests: PullRequest[];
+  events: ReleaseEvent[];
+  latest_seq: number;
+  status: ReleaseStreamStatus;
+  counts: { open: number; needs_review: number; ready: number; live_events: number };
+}
+
 export interface Bootstrap {
   workspace: Workspace;
   summary: Summary;
@@ -200,6 +316,7 @@ export interface Bootstrap {
   sources: WatchedSource[];
   incidents: Incident[];
   history: Incident[];
+  release: ReleaseData;
   remediations?: Remediation[];
   changes: WebObservation[];
   discoveries: Discovery[];
@@ -232,6 +349,7 @@ export interface Health {
   last_scan_at: string | null;
   source_counts: Record<string, number>;
   watcher?: { enabled: boolean; interval_seconds: number; implementation: string };
+  release_stream?: ReleaseStreamStatus;
 }
 
 export interface IncidentsResponse {
@@ -276,4 +394,4 @@ export interface Remediation {
   pr_number: number | null;
 }
 
-export type View = 'overview' | 'watch' | 'radar' | 'vulnerabilities' | 'evidence';
+export type View = 'release' | 'overview' | 'watch' | 'radar' | 'vulnerabilities' | 'evidence';

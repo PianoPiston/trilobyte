@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -9,12 +10,14 @@ import httpx
 
 from .changes import capture_change, change_kind, change_severity
 from .config import Settings
-from .contextdev import ContextDev, DocumentSpec, custom_dict, custom_spec, documents_for, parse_deprecations, research_query, validate_watch_url
+from .contextdev import ContextDev, DocumentSpec, custom_dict, custom_spec, documents_for, parse_deprecations, research_query, status_snapshot, validate_watch_url
 from .db import Database
 from .github import GitHubError, GitHubPullRequests
 from .intel import VulnerabilityIntel, advisory_receipts, cve_id, kev_entries, kev_receipt, score_and_severity
+from .release_analysis import observed_at, release_payload
+from .releases import ReleaseError, ReleaseWatcher
 from .remediation import RemediationError, generate, patch_text
-from .repository import SourceLimits, read_public
+from .repository import RepositoryError, SourceLimits, read_public
 from .scanner import Dependency, dependency_evidence, inventory, middleware_evidence, model_evidence, production_models
 from .seed import actions, deprecation_receipt, deprecation_signal
 from .util import parse_iso, safe_excerpt, stable_id, utcnow
@@ -61,6 +64,7 @@ class DriftService:
         self.http = http
         self.context = ContextDev(db, CachedWebClient(db, http, settings.context_min_interval), settings.contextdev_api_key, settings.context_cache_ttl, settings.context_daily_credit_limit)
         self.intel = VulnerabilityIntel(db, CachedWebClient(db, http, .2), settings.osv_cache_ttl, settings.kev_cache_ttl)
+        self.releases = ReleaseWatcher(db, settings, http)
 
     def health(self) -> dict:
         sources = self.db.list_sources()
@@ -72,16 +76,18 @@ class DriftService:
             "replay": sum(source.get("status") == "replay" for source in sources),
         }
         return {
-            "ok": True, "version": "1.1.0",
+            "ok": True, "version": "2.0.0",
             "context_dev": {"configured": bool(self.settings.contextdev_api_key), "mode": "live" if self.settings.contextdev_api_key and not self.settings.offline else "offline" if self.settings.offline else "unconfigured", "usage": self.context.usage()},
             "github": {"configured": bool(self.settings.github_token), "mode": "pull requests available" if self.settings.github_token else "read-only"},
             "last_scan_at": self.db.get_meta("last_scan_at"), "source_counts": counts,
+            "release_stream": self.releases.health(),
         }
+
 
     def bootstrap(self) -> dict:
         workspace = self.db.workspace()
         files = self.db.files()
-        signals = sorted(self.db.list_signals(), key=signal_sort)
+        signals = [dict(row, observed_at=observed_at(row)) for row in sorted(self.db.list_signals(), key=signal_sort)]
         incidents = self.db.list_incidents()
         active_incidents = [incident for incident in incidents if incident["state"] != "resolved"]
         history = [incident for incident in incidents if incident["state"] == "resolved"]
@@ -128,6 +134,7 @@ class DriftService:
         sources = self.db.list_sources()
         changes = sorted((dict(change, publisher=source.get("publisher"), source_title=source.get("title"), signal_id=change.get("signal_id")) for source in sources for change in source.get("observations", [])), key=lambda item: item["observed_at"], reverse=True)
         search_source = self.db.get_source("src-context-search") or {}
+        release = release_payload(self.db, files, signals, self.releases.health())
         return {
             "workspace": workspace,
             "summary": {
@@ -139,12 +146,15 @@ class DriftService:
                 "mean_response_hours": round(sum(durations) / len(durations), 1) if durations else 0.0,
                 "watched_sources": sum(bool(source.get("category")) for source in sources),
                 "observed_changes": len(changes),
+                "open_prs": release["counts"]["open"], "release_reviews": release["counts"]["needs_review"],
+                "live_release_events": release["counts"]["live_events"],
             },
             "signals": signals, "dependencies": dependencies,
             "activity": self.db.list_activity(30), "sources": [public_source(source) for source in sources],
             "incidents": active_incidents, "history": history,
             "remediations": remediations, "changes": changes, "discoveries": search_source.get("results", []),
             "research": {"query": search_source.get("query"), "retrieved_at": search_source.get("last_checked_at"), "mode": search_source.get("mode")} if search_source else None,
+            "release": release,
             "metrics": {"source_receipts": len(receipts), "files_indexed": len(files), "dependencies_indexed": len(dependencies), "context_queries": self.db.get_meta("context_queries", 0), "context_credits": self.db.get_meta("context_credits", 0)},
         }
 
@@ -199,6 +209,168 @@ class DriftService:
             self.db.save_signal(signal)
         self.db.add_activity("incident", f"{incident['cve']}: {action['label']}", f"Checklist action marked {status}")
         return incident
+
+    def add_external_event(self, signal: dict) -> None:
+        """Record a newly observed external fact and its currently mapped PRs."""
+        related = release_payload(self.db, self.db.files(), self.db.list_signals(), self.releases.health())["pull_requests"]
+        numbers = [pr["number"] for pr in related if any(item["id"] == signal["id"] for item in pr["external_evidence"]) and pr["state"] == "open"]
+        receipt = (signal.get("source_receipts") or [{}])[0]
+        self.db.add_release_event({
+            "id": stable_id("event", "external", signal["id"], observed_at(signal) or signal["created_at"]),
+            "kind": "web_change", "title": signal["title"],
+            "detail": f"External evidence matched {len(numbers)} open PR{'s' if len(numbers) != 1 else ''}. Inspect the source diff before recording a decision.",
+            "occurred_at": observed_at(signal) or signal["created_at"], "received_at": utcnow(),
+            "pr_id": f"pr-{numbers[0]}" if len(numbers) == 1 else None,
+            "pr_number": numbers[0] if len(numbers) == 1 else None,
+            "affected_pr_numbers": numbers[:12], "signal_id": signal["id"],
+            "url": receipt.get("url"), "source": signal.get("provider", "Context.dev"),
+            "mode": receipt.get("mode", "live"), "baseline": False,
+            "head_sha": None,
+        })
+
+    async def _scan_status(self, files: dict[str, str]) -> None:
+        """Hot polling is activity-scoped; unrelated documentation keeps its long cache."""
+        specs = [spec for spec in documents_for(files, self._custom_specs(), self.settings.context_max_sources) if spec.category == "status"]
+        if not specs:
+            return
+        hot = False
+        deadline = datetime.now(timezone.utc).timestamp() - self.settings.status_hot_window_seconds
+        for pr in self.db.list_pull_requests():
+            if pr.get("state") != "open":
+                continue
+            if (pr.get("check_summary") or {}).get("state") == "pending":
+                hot = True
+                break
+            try:
+                hot = parse_iso(pr["updated_at"]).timestamp() >= deadline
+            except (ValueError, TypeError):
+                continue
+            if hot:
+                break
+        await self._scan_documents(files, specs, research=False, hot=hot)
+
+    async def refresh_releases(self, pr_number: int | None = None, include_status: bool = True) -> dict:
+        """Refresh PR events independently of expensive web and vulnerability scans."""
+        if self.settings.offline:
+            return self.bootstrap()
+        source = self.db.get_source("src-github-releases") or {
+            "id": "src-github-releases", "publisher": "GitHub", "title": "Release event stream",
+            "url": f"https://github.com/{self.db.workspace().get('repository', '')}",
+        }
+        now = utcnow()
+        try:
+            result = await self.releases.refresh(pr_number)
+        except (ReleaseError, RepositoryError) as exc:
+            health = self.db.get_meta("github_release_health", {})
+            health["last_polled_at"] = now
+            health["last_error"] = safe_excerpt(exc, 320)
+            if isinstance(exc, ReleaseError) and exc.retry_after:
+                health["retry_after_seconds"] = exc.retry_after
+            self.db.set_meta("github_release_health", health)
+            source.update({"status": "error", "last_attempt_at": now, "error": health["last_error"], "watch": False})
+            self.db.save_source(source)
+        else:
+            health = self.db.get_meta("github_release_health", {})
+            health["last_polled_at"] = now
+            health["last_success_at"] = now
+            health["last_error"] = None
+            health["last_transport_mode"] = result["status"]
+            health["detail_pending"] = result["detail_pending"]
+            health["release_requests"] = self.db.get_meta("github_release_requests", 0)
+            self.db.set_meta("github_release_health", health)
+            error = safe_excerpt("; ".join(result["errors"]), 360) if result["errors"] else None
+            source.update({
+                "status": result["status"], "last_checked_at": now, "event_count": sum(event.get("source") == "GitHub" for event in self.db.list_release_events(limit=500)),
+                "mode": result["status"], "error": error, "category": "release_events", "watch": False,
+                "poll_interval_seconds": self.settings.release_poll_interval_seconds,
+            })
+            self.db.save_source(source)
+            if include_status:
+                await self._scan_status(self.db.files())
+        return self.bootstrap()
+
+    def record_release_decision(self, pr_id: str, decision: str, reviewer: str, note: str) -> dict:
+        if decision not in {"ready", "hold"} or not 1 <= len(reviewer.strip()) <= 80 or len(note) > 1000:
+            raise RemediationError("Provide a reviewer name and a ready or hold decision")
+        pr = self.db.get_pull_request(pr_id)
+        if not pr:
+            raise LookupError("Release pull request not found")
+        current = next((row for row in release_payload(self.db, self.db.files(), self.db.list_signals(), self.releases.health())["pull_requests"] if row["id"] == pr_id), None)
+        if not current or pr["state"] != "open":
+            raise RemediationError("Only an open pull request can receive a release decision")
+        release_health = self.releases.health()
+        if decision == "ready" and (release_health.get("last_error") or not release_health.get("last_success_at")):
+            raise RemediationError("GitHub release evidence is stale or has not been retrieved. Refresh it before recording ready, or record a hold with that limitation.")
+        if decision == "ready" and not pr.get("detail_complete"):
+            raise RemediationError("PR file, review and check coverage is incomplete. Refresh first, or record a hold with the known coverage limit.")
+        if decision == "ready" and (pr.get("check_summary") or {}).get("state") in {"pending", "failed"}:
+            raise RemediationError("Checks are still running or failing. Inspect them before recording a ready decision.")
+        created = utcnow()
+        record = {
+            "id": stable_id("decision", pr_id, current["head_sha"], current["evidence_hash"], created, reviewer, decision),
+            "pr_id": pr_id, "head_sha": current["head_sha"], "evidence_hash": current["evidence_hash"],
+            "decision": decision, "reviewer": safe_excerpt(reviewer, 80), "note": safe_excerpt(note, 1000),
+            "created_at": created, "scope": "local DriftCI release decision; no GitHub review or merge state was changed",
+        }
+        self.db.save_release_decision(record)
+        self.db.add_release_event({
+            "id": stable_id("event", "local-decision", record["id"]),
+            "kind": "decision", "title": f"Release {'readiness confirmed' if decision == 'ready' else 'paused'}",
+            "detail": f"{record['reviewer']} recorded a local {decision} decision for head {current['head_sha'][:8]} · evidence {current['evidence_hash'][:8]}. {record['note']}",
+            "occurred_at": created, "received_at": created, "pr_id": pr_id, "pr_number": pr["number"],
+            "url": pr["url"], "head_sha": pr["head_sha"], "source": "DriftCI reviewer", "mode": "local_record", "baseline": False,
+            "decision": decision,
+        })
+        self.db.add_activity("release_decision", f"PR #{pr['number']}: release {'ready' if decision == 'ready' else 'paused'}", f"{record['reviewer']} · local decision · no GitHub state changed")
+        return self.bootstrap()
+
+    def release_report(self, pr_id: str) -> tuple[str, str]:
+        current = next((row for row in release_payload(self.db, self.db.files(), self.db.list_signals(), self.releases.health())["pull_requests"] if row["id"] == pr_id), None)
+        if not current:
+            raise LookupError("Release pull request not found")
+        decision = current["release_decision"]
+        lines = [
+            f"# DriftCI release decision · PR #{current['number']}", "",
+            current["title"], "",
+            f"Generated at {utcnow()}. Source repository: {current['repository']}.", "",
+            "## Current state", "",
+            f"- Head commit: `{current['head_sha']}`",
+            f"- Readiness: **{current['readiness']}**",
+            f"- Local decision: **{decision['decision'] if decision else 'not recorded'}**",
+            f"- Reviewer: {decision['reviewer'] if decision else 'not recorded'}",
+            f"- Decision recorded: {decision['created_at'] if decision else 'not recorded'}",
+            f"- Evidence hash: `{current['evidence_hash']}`",
+            f"- Latest observed external change: {current['latest_external_observation'] or 'no observed post-baseline change mapped'}",
+            f"- Latest remote approval: {current['latest_remote_approval'] or 'no approval in the bounded review retrieval'}",
+            f"- Changed-file coverage: {'complete within the declared bound' if current.get('files_complete') else 'partial; refresh before relying on absence'}",
+            "",
+        ]
+        if decision:
+            lines.extend(["## Reviewer note", "", decision["note"] or "No note supplied.", "", decision["scope"], ""])
+        elif current.get("expired_release_decision"):
+            expired = current["expired_release_decision"]
+            lines.extend(["An earlier local decision no longer matches the current head or evidence set.", "", f"Previous decision: {expired['decision']} at {expired['created_at']}.", ""])
+        lines.extend(["## Checks", "", "| Check | Status | Conclusion |", "| --- | --- | --- |"])
+        for check in current.get("checks", []):
+            lines.append(f"| {check['name']} | {check['status']} | {check.get('conclusion') or 'pending'} |")
+        if not current.get("checks"):
+            lines.append("| No checks reported in the bounded GitHub response | — | — |")
+        lines.extend(["", "## Changed files", ""])
+        for item in current.get("files", []):
+            lines.append(f"- `{item['path']}` · +{item['additions']} / −{item['deletions']}")
+        lines.extend(["", "## External evidence", ""])
+        for match in current["external_evidence"]:
+            lines.extend([f"### {match['title']}", "", f"Signal `{match['id']}` · state {match['state']} · observed {match.get('observed_at') or 'baseline only; no post-baseline observation timestamp'}.", ""])
+            if match["matched_files"]:
+                lines.append("Matched paths: " + ", ".join(f"`{path}`" for path in match["matched_files"]))
+                lines.append("")
+            for receipt in match["source_receipts"]:
+                fingerprint = (match.get("change") or {}).get("content_hash") or hashlib.sha256(f"{receipt.get('url')}\0{receipt.get('retrieved_at')}\0{receipt.get('quote')}".encode()).hexdigest()
+                lines.append(f"- [{receipt.get('publisher')}: {receipt.get('title')}]({receipt.get('url')}) · retrieved {receipt.get('retrieved_at')} · `{fingerprint}`")
+        if not current["external_evidence"]:
+            lines.append("No matching external evidence in the bounded PR/source mapping. This is scoped evidence, not a guarantee that no relevant external change exists.")
+        lines.extend(["", "## Limitations", "", "DriftCI did not execute the repository, change GitHub review/merge state or prove runtime exploitability. PR matching uses added and context lines in the bounded retrieved diffs; removed lines and deleted files do not count as current configuration. Omitted or truncated patches remain incomplete. Validate application-owned tests and deployment checks before release.", ""])
+        return f"pr-{current['number']}-release-decision.md", "\n".join(lines)
 
     def create_remediation(self, signal_id: str) -> dict:
         signal = self.db.get_signal(signal_id)
@@ -351,7 +523,7 @@ class DriftService:
         if self.settings.offline:
             self.db.add_activity("scan", "Offline inventory refreshed", f"{len(files)} files · {len(dependencies)} exact dependency versions; network sources were not queried")
         else:
-            document_results, vulnerability_count = await asyncio.gather(self._scan_documents(files), self._scan_vulnerabilities(files, dependencies))
+            document_results, vulnerability_count, _release = await asyncio.gather(self._scan_documents(files), self._scan_vulnerabilities(files, dependencies), self.refresh_releases(include_status=False))
             warnings = sum(bool(source.get("error")) or source.get("status") in {"error", "unconfigured", "partial"} for source in self.db.list_sources())
             decisions = sum(signal["state"] in ACTIVE_STATES for signal in self.db.list_signals())
             self.db.add_activity("scan", "Source refresh completed", f"{document_results} model signals · {vulnerability_count} package-advisory matches · {decisions} decisions required · {warnings} source warnings")
@@ -365,7 +537,19 @@ class DriftService:
         evidence: list[dict] = []
         assets: list[str] = []
         terms: list[str] = []
-        if spec.package:
+        if spec.category == "status":
+            package_names = {"OpenAI": {"openai", "@ai-sdk/openai"}, "Anthropic": {"anthropic", "@anthropic-ai/sdk"}}.get(spec.provider, set())
+            for item in inventory(files):
+                if item["name"] in package_names:
+                    dependency = Dependency(**{key: item[key] for key in ("name", "ecosystem", "version", "declared", "kind", "manifest", "exact")})
+                    evidence.extend(dependency_evidence(files, dependency))
+                    assets.append(item["name"])
+                    terms.append(item["name"])
+            for model, locations in locations_by_model.items():
+                evidence.extend(dict(item) for item in locations)
+                assets.append(model)
+                terms.append(model)
+        elif spec.package:
             for item in inventory(files):
                 if item["name"] != spec.package:
                     continue
@@ -451,14 +635,15 @@ class DriftService:
         })
         self.db.save_source(source)
 
-    async def _scan_documents(self, files: dict[str, str]) -> int:
+    async def _scan_documents(self, files: dict[str, str], specs: list[DocumentSpec] | None = None, research: bool = True, hot: bool = False) -> int:
         matched = 0
-        specs = documents_for(files, self._custom_specs(), self.settings.context_max_sources)
+        specs = specs if specs is not None else documents_for(files, self._custom_specs(), self.settings.context_max_sources)
         locations_by_model: dict[str, list[dict]] = {}
         for item in model_evidence(files):  # Parse the selected source tree once, not once per lifecycle event.
             locations_by_model.setdefault(item["model"].lower(), []).append({key: value for key, value in item.items() if key != "model"})
         for spec in specs:
-            result = await self.context.scrape(spec)
+            ttl = self.settings.status_hot_ttl_seconds if hot else self.settings.status_cache_ttl_seconds if spec.category == "status" else None
+            result = await self.context.scrape(spec, ttl=ttl)
             if result.error:
                 source = self.context.error_source(spec, result.error)
                 if not self.settings.contextdev_api_key:
@@ -468,7 +653,9 @@ class DriftService:
                 continue
 
             old = self.db.get_source(f"src-{spec.key}") or {}
-            observation, snapshot = capture_change(spec, result.data, old, result.retrieved_at or utcnow(), result.mode)
+            had_document_baseline = bool(old.get("content_hash"))
+            comparable = status_snapshot(result.data) if spec.category == "status" else result.data
+            observation, snapshot = capture_change(spec, comparable, old, result.retrieved_at or utcnow(), result.mode)
             observations = list(old.get("observations") or [])[:12]
             lifecycle_matches = 0
             if observation:
@@ -477,6 +664,8 @@ class DriftService:
                 if signal:
                     matched += 1
                 self.db.add_activity("web_change", observation["title"], f"{observation['added_lines']} additions · {observation['removed_lines']} removals · matched {len(observation.get('matched_terms', []))} repository terms")
+                if signal:
+                    self.add_external_event(signal)
 
             observations = observations[:12]
             if spec.category == "deprecations":
@@ -496,17 +685,21 @@ class DriftService:
                     past = bool(deadline and parse_iso(deadline) <= datetime.now(timezone.utc))
                     signal = {
                         "id": ident, "kind": "deprecation", "severity": "critical" if past else "high", "state": existing.get("state", "needs_action"),
-                        "title": "A retired model is still configured" if past else "A configured model is approaching retirement",
-                        "summary": f"{model} {'was shut down' if past else 'is listed for retirement'}{' on ' + deadline[:10] if deadline else ''}. {len(evidence)} code/config locations select it.",
+                        "title": "Retired model identifiers remain in source" if past else "Model identifiers are approaching retirement",
+                        "summary": f"{model} {'was shut down' if past else 'is listed for retirement'}{' on ' + deadline[:10] if deadline else ''}. {len(evidence)} selected code/config locations reference it.",
                         "provider": spec.provider, "affected_assets": ["Support summaries", "Escalation drafts"] if special else sorted({item["file"] for item in evidence}),
                         "deadline": deadline, "announced_at": announced, "cve": None, "cvss": None, "kev": False, "fixed_version": None,
                         "replacement": replacement, "model": model, "reachability": "confirmed",
-                        "reachability_reason": "Exact source identifiers confirm configuration, not runtime invocation.",
-                        "recommendation": f"Replace it with {replacement} and run existing evaluations before deployment." if replacement else "Select an official replacement from the cited lifecycle table and run existing evaluations before deployment.",
+                        "reachability_reason": "Exact identifiers confirm presence in selected code/config, not runtime invocation or deployment. SDK catalog definitions also require compatibility review.",
+                        "recommendation": f"Where application-owned code uses it, review migration to {replacement} and run existing evaluations. For SDK catalogs, review compatibility and removal policy first." if replacement else "Review official lifecycle replacements for application call sites and compatibility catalogs, then run existing evaluations before deployment.",
                         "evidence": evidence, "source_receipts": [receipt], "remediation_id": existing.get("remediation_id"),
                         "created_at": existing.get("created_at") or announced or utcnow(), "watch_id": f"src-{spec.key}",
                     }
+                    new_signal = not existing
+                    signal["observed_at"] = existing.get("observed_at") or (result.retrieved_at if new_signal and had_document_baseline else None)
                     self.db.save_signal(signal)
+                    if new_signal and had_document_baseline:
+                        self.add_external_event(signal)
             self.db.save_source({
                 **old, **snapshot, "id": f"src-{spec.key}", "publisher": spec.provider, "title": spec.title, "url": spec.url,
                 "status": result.mode, "last_checked_at": result.retrieved_at, "event_count": lifecycle_matches + len(observations),
@@ -514,12 +707,14 @@ class DriftService:
                 "category": spec.category, "package": spec.package, "custom": spec.custom, "watch": True,
             })
             matched += lifecycle_matches
-        await self._scan_research(files, specs)
+        if research:
+            await self._scan_research(files, specs)
         return matched
 
     async def _scan_vulnerabilities(self, files: dict[str, str], dependencies: list[Dependency]) -> int:
         if not dependencies:
             return 0
+        had_baseline = bool(self.db.get_meta("vulnerability_baseline_at"))
         dependency_priority = {"framework": 0, "ai_sdk": 1, "ui": 2}
         ordered = sorted(dependencies, key=lambda item: (item.manifest.count("/") > 0, dependency_priority.get(item.kind, 3), item.manifest, item.name))
         limit = self.settings.vulnerability_package_limit
@@ -592,7 +787,11 @@ class DriftService:
                 if known_exploited.get(cve):
                     signal["kev_due_date"] = known_exploited[cve].get("dueDate")
                     signal["kev_ransomware"] = known_exploited[cve].get("knownRansomwareCampaignUse")
+                signal["observed_at"] = existing.get("observed_at") or (utcnow() if had_baseline else None)
+                new_signal = not existing
                 self.db.save_signal(signal)
+                if new_signal and had_baseline:
+                    self.add_external_event(signal)
                 incident_id = "inc-" + ident[4:]
                 previous = self.db.get_incident(incident_id) or {}
                 old_actions = previous.get("actions") or actions(fixed or "an unaffected release")
@@ -620,4 +819,5 @@ class DriftService:
         cisa = self.db.get_source("src-cisa") or {"id": "src-cisa", "publisher": "CISA", "title": "Known Exploited Vulnerabilities", "url": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog"}
         cisa.update({"status": "error" if kev_result.error else kev_result.mode, "last_checked_at": kev_result.retrieved_at or cisa.get("last_checked_at"), "event_count": sum(cve_id(advisory) in known_exploited for result in results for advisory in result.advisories), "mode": kev_result.mode if not kev_result.error else cisa.get("mode", "cached"), "error": safe_excerpt(kev_result.error, 240) if kev_result.error else None})
         self.db.save_source(cisa)
+        self.db.set_meta("vulnerability_baseline_at", self.db.get_meta("vulnerability_baseline_at") or utcnow())
         return matches

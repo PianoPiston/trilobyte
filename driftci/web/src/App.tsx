@@ -5,6 +5,7 @@ import {
   ChevronDown,
   FlaskConical,
   Github,
+  GitPullRequestArrow,
   Globe2,
   History,
   LayoutDashboard,
@@ -18,7 +19,7 @@ import {
   ShieldAlert,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api';
 import type {
   Bootstrap,
@@ -31,9 +32,11 @@ import { cx, errorText, relativeTime } from './utils';
 import { ChangeRadar } from './pages/ChangeRadar';
 import { Evidence } from './pages/Evidence';
 import { MissionControl } from './pages/MissionControl';
+import { ReleaseRoom, ReleaseDrawer } from './pages/ReleaseRoom';
 import { Vulnerabilities } from './pages/Vulnerabilities';
 import { WebWatch } from './pages/WebWatch';
 import { RepositoryDrawer } from './components/RepositoryDrawer';
+import { ReleaseDecisionDialog } from './components/ReleaseDecisionDialog';
 import { SignalDrawer } from './components/SignalDrawer';
 import {
   Button,
@@ -48,7 +51,8 @@ import {
 } from './components/ui';
 
 const navigation: Array<{ id: View; label: string; icon: typeof LayoutDashboard }> = [
-  { id: 'overview', label: 'Mission Control', icon: LayoutDashboard },
+  { id: 'release', label: 'Release Room', icon: GitPullRequestArrow },
+  { id: 'overview', label: 'Workspace', icon: LayoutDashboard },
   { id: 'watch', label: 'Web Watch', icon: Globe2 },
   { id: 'radar', label: 'Change Inbox', icon: Radar },
   { id: 'vulnerabilities', label: 'Vulnerabilities', icon: ShieldAlert },
@@ -71,12 +75,21 @@ export default function App() {
   const [initialError, setInitialError] = useState('');
   const [refreshError, setRefreshError] = useState('');
   const [busy, setBusy] = useState('');
-  const [view, setView] = useState<View>('overview');
+  const [view, setView] = useState<View>('release');
   const [mobileNavigation, setMobileNavigation] = useState(false);
   const [repositoryOpen, setRepositoryOpen] = useState(false);
   const [selectedSignalId, setSelectedSignalId] = useState('');
+  const [selectedPrId, setSelectedPrId] = useState('');
+  const [decisionPrId, setDecisionPrId] = useState('');
+  const [streamConnected, setStreamConnected] = useState(false);
   const [replayConfirmation, setReplayConfirmation] = useState(false);
   const [toast, setToast] = useState<ToastData | null>(null);
+  const latestEventSeq = useRef(0);
+
+  const acceptBootstrap = useCallback((result: Bootstrap) => {
+    latestEventSeq.current = Math.max(latestEventSeq.current, result.release.latest_seq);
+    setData(result);
+  }, []);
 
   const notify = useCallback((message: string, tone: 'success' | 'error' | 'info' = 'info') => {
     setToast({ id: Date.now(), message, tone });
@@ -97,7 +110,7 @@ export default function App() {
     try {
       const [bootstrapResult, healthResult] = await Promise.allSettled([api.bootstrap(), api.health()]);
       if (bootstrapResult.status === 'rejected') throw bootstrapResult.reason;
-      setData(bootstrapResult.value);
+      acceptBootstrap(bootstrapResult.value);
       if (healthResult.status === 'fulfilled') setHealth(healthResult.value);
     } catch (requestError) {
       setInitialError(errorText(requestError));
@@ -107,6 +120,45 @@ export default function App() {
   }, []);
 
   useEffect(() => { void loadInitial(); }, [loadInitial]);
+
+  const streamEnabled = data !== null;
+  useEffect(() => {
+    if (!streamEnabled) return;
+    let cancelled = false;
+    let reloadTimer: number | undefined;
+    const source = new EventSource(`/api/events/stream?after=${latestEventSeq.current}`);
+    source.onopen = () => { if (!cancelled) setStreamConnected(true); };
+    source.onerror = () => { if (!cancelled) setStreamConnected(false); };
+    source.addEventListener('update', (message) => {
+      let event: { seq?: number; kind?: string; title?: string; baseline?: boolean };
+      try { event = JSON.parse(message.data); } catch { return; }
+      if (typeof event.seq !== 'number' || event.seq <= latestEventSeq.current) return;
+      latestEventSeq.current = event.seq;
+      if (!event.baseline && event.kind !== 'decision') {
+        const title = typeof event.title === 'string' ? event.title : 'Release evidence changed';
+        notify(event.kind === 'web_change' ? `Official web update · ${title}` : title, 'info');
+      }
+      window.clearTimeout(reloadTimer);
+      reloadTimer = window.setTimeout(() => {
+        if (cancelled) return;
+        void Promise.allSettled([api.bootstrap(), api.health()]).then(([bootstrap, health]) => {
+          if (cancelled) return;
+          if (bootstrap.status === 'fulfilled') acceptBootstrap(bootstrap.value);
+          if (health.status === 'fulfilled') setHealth(health.value);
+        });
+      }, 250);
+    });
+    return () => {
+      cancelled = true;
+      source.close();
+      window.clearTimeout(reloadTimer);
+    };
+  }, [streamEnabled, acceptBootstrap, notify]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => { void refreshHealth(); }, 30_000);
+    return () => window.clearInterval(timer);
+  }, [refreshHealth]);
 
   const navigate = (nextView: View) => {
     setView(nextView);
@@ -123,8 +175,10 @@ export default function App() {
     setRefreshError('');
     try {
       const result = await action();
-      setData(result);
+      acceptBootstrap(result);
       setSelectedSignalId('');
+      setSelectedPrId('');
+      setDecisionPrId('');
       notify(successMessage, 'success');
       void refreshHealth();
     } catch (requestError) {
@@ -134,14 +188,14 @@ export default function App() {
     } finally {
       setBusy('');
     }
-  }, [notify, refreshHealth]);
+  }, [notify, refreshHealth, acceptBootstrap]);
 
   const connectRepository = async (url: string) => {
     setBusy('connect');
     setRefreshError('');
     try {
       const result = await api.connectRepository(url);
-      setData(result);
+      acceptBootstrap(result);
       setRepositoryOpen(false);
       setSelectedSignalId('');
       notify(`Connected ${result.workspace.repository} on ${result.workspace.branch}.`, 'success');
@@ -152,6 +206,24 @@ export default function App() {
     } finally {
       setBusy('');
     }
+  };
+
+  const recordReleaseDecision = async (prId: string, decision: 'ready' | 'hold', reviewer: string, note: string) => {
+    setBusy('release-decision');
+    try {
+      acceptBootstrap(await api.recordReleaseDecision(prId, decision, reviewer, note));
+      setSelectedPrId('');
+      setDecisionPrId('');
+      notify(decision === 'ready' ? 'Readiness recorded for the current head and evidence set.' : 'Release paused locally.', 'success');
+      void refreshHealth();
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const selectReleaseSignal = (id: string) => {
+    setSelectedPrId('');
+    setSelectedSignalId(id);
   };
 
   const updateSignal = (updated: Signal) => {
@@ -173,15 +245,17 @@ export default function App() {
     } : current);
     // Incident transitions also change signal state and aggregate metrics.
     void api.bootstrap().then((result) => {
-      setData(result);
+      acceptBootstrap(result);
     }).catch(() => { /* The incident response already updated successfully. */ });
   };
+
+  const refreshReleases = () => runWorkspaceAction('release-refresh', api.refreshReleases, 'Release metadata refreshed. The event stream remains connected.');
 
   const addWatch = async (url: string, title: string) => {
     setBusy('add-watch');
     try {
       const result = await api.addWatch(url, title);
-      setData(result);
+      acceptBootstrap(result);
       notify('Web watch added. A baseline is established on first retrieval.', 'success');
       void refreshHealth();
     } catch (requestError) {
@@ -195,7 +269,7 @@ export default function App() {
   const removeWatch = async (key: string) => {
     setBusy('remove-watch');
     try {
-      setData(await api.removeWatch(key));
+      acceptBootstrap(await api.removeWatch(key));
       notify('Custom web watch removed.', 'success');
     } catch (requestError) {
       notify(errorText(requestError), 'error');
@@ -208,7 +282,7 @@ export default function App() {
   if (initialLoading) {
     return (
       <main className="startup-screen">
-        <div className="startup-brand"><Brand /><span className="environment-badge">Operations console</span></div>
+        <div className="startup-brand"><Brand /><span className="environment-badge">Live release workspace</span></div>
         <div className="startup-loader"><Spinner label="Loading workspace, evidence and source status" /></div>
         <div className="startup-skeleton" aria-hidden="true"><div /><div /><div /><div /></div>
       </main>
@@ -231,6 +305,8 @@ export default function App() {
   }
 
   const selectedInitialSignal = data.signals.find((signal) => signal.id === selectedSignalId);
+  const selectedPr = data.release.pull_requests.find((pr) => pr.id === selectedPrId);
+  const decisionPr = data.release.pull_requests.find((pr) => pr.id === decisionPrId);
 
   return (
     <div className="app-shell">
@@ -238,7 +314,7 @@ export default function App() {
       {mobileNavigation && <button className="sidebar-backdrop" aria-label="Close navigation" onClick={() => setMobileNavigation(false)} />}
       <aside className={cx('sidebar', mobileNavigation && 'sidebar-open')}>
         <div className="sidebar-top">
-          <button className="brand-button" onClick={() => navigate('overview')} aria-label="DriftCI mission control"><Brand /></button>
+          <button className="brand-button" onClick={() => navigate('release')} aria-label="DriftCI release room"><Brand /></button>
           <IconButton className="mobile-sidebar-close" icon={PanelLeftClose} label="Close navigation" onClick={() => setMobileNavigation(false)} />
         </div>
 
@@ -257,10 +333,11 @@ export default function App() {
           <span className="navigation-label">Operations</span>
           {navigation.map((item) => {
             const Icon = item.icon;
-            const count = item.id === 'watch' ? data.summary.observed_changes
+            const count = item.id === 'release' ? data.release.counts.needs_review
+              : item.id === 'watch' ? data.summary.observed_changes
               : item.id === 'radar' ? data.summary.active_changes
               : item.id === 'vulnerabilities' ? data.incidents.length
-                : item.id === 'evidence' ? data.metrics.source_receipts : null;
+              : item.id === 'evidence' ? data.metrics.source_receipts : null;
             return (
               <button key={item.id} className={cx(view === item.id && 'active')} onClick={() => navigate(item.id)} aria-current={view === item.id ? 'page' : undefined}>
                 <Icon aria-hidden="true" /><span>{item.label}</span>{count !== null && <small>{count}</small>}
@@ -286,21 +363,21 @@ export default function App() {
         <header className="command-bar">
           <div className="command-left">
             <IconButton className="mobile-menu" icon={Menu} label="Open navigation" onClick={() => setMobileNavigation(true)} />
-            <button className="mobile-brand" onClick={() => navigate('overview')} aria-label="DriftCI mission control"><Brand /></button>
+            <button className="mobile-brand" onClick={() => navigate('release')} aria-label="DriftCI release room"><Brand /></button>
             <div className="source-mode-summary">
               {health && <ModeBadge mode={health.context_dev.configured ? health.context_dev.mode : 'not_configured'} />}
               {!health && <ModeBadge mode="health_unavailable" />}
             </div>
           </div>
           <div className="command-actions">
-            <span className="last-scan">Last scan <strong>{relativeTime(health?.last_scan_at ?? null)}</strong></span>
+            <span className="last-scan">{view === 'release' ? 'Last GitHub poll' : 'Last web scan'} <strong>{relativeTime(view === 'release' ? health?.release_stream?.last_polled_at ?? null : health?.last_scan_at ?? null)}</strong></span>
             <IconButton icon={Settings2} label="Repository and demo controls" onClick={() => setRepositoryOpen(true)} />
             <Button
               variant="primary"
-              icon={ScanSearch}
-              loading={busy === 'scan'}
-              onClick={() => void runWorkspaceAction('scan', api.scan, 'Live web and vulnerability intelligence refreshed.')}
-            >Refresh web</Button>
+              icon={view === 'release' ? GitPullRequestArrow : ScanSearch}
+              loading={view === 'release' ? busy === 'release-refresh' : busy === 'scan'}
+              onClick={view === 'release' ? () => void refreshReleases() : () => void runWorkspaceAction('scan', api.scan, 'Live web and vulnerability intelligence refreshed.')}
+            >{view === 'release' ? 'Refresh releases' : 'Refresh web'}</Button>
           </div>
         </header>
 
@@ -308,12 +385,23 @@ export default function App() {
           <InlineNotice tone="error" className="stale-data-banner" role="alert">
             <BellRing aria-hidden="true" />
             <div><strong>Refresh failed. Showing the last successful workspace data.</strong><span>{refreshError}</span></div>
-            <Button size="small" icon={RefreshCw} loading={busy === 'scan'} onClick={() => void runWorkspaceAction('scan', api.scan, 'Live web and vulnerability intelligence refreshed.')}>Retry refresh</Button>
+            <Button size="small" icon={RefreshCw} loading={busy === 'scan' || busy === 'release-refresh'} onClick={view === 'release' ? () => void refreshReleases() : () => void runWorkspaceAction('scan', api.scan, 'Live web and vulnerability intelligence refreshed.')}>Retry refresh</Button>
             <IconButton icon={X} label="Dismiss refresh error" onClick={() => setRefreshError('')} />
           </InlineNotice>
         )}
 
         <main id="main-content" className="main-content" tabIndex={-1}>
+          {view === 'release' && <ReleaseRoom
+            data={data}
+            health={health}
+            connected={streamConnected}
+            busy={busy === 'release-refresh'}
+            onRefresh={() => void refreshReleases()}
+            onSelectPr={setSelectedPrId}
+            onSelectSignal={setSelectedSignalId}
+            onNavigate={navigate}
+            onConnect={() => setRepositoryOpen(true)}
+          />}
           {view === 'overview' && <MissionControl data={data} health={health} onNavigate={navigate} onSelectSignal={setSelectedSignalId} />}
           {view === 'watch' && <WebWatch data={data} health={health} busy={busy} onAddWatch={addWatch} onRemoveWatch={removeWatch} onSelectSignal={setSelectedSignalId} />}
           {view === 'radar' && <ChangeRadar initialSignals={data.signals} onSelectSignal={setSelectedSignalId} />}
@@ -321,6 +409,24 @@ export default function App() {
           {view === 'evidence' && <Evidence data={data} onSelectSignal={setSelectedSignalId} onNavigate={navigate} />}
         </main>
       </div>
+
+      {selectedPr && (
+        <ReleaseDrawer
+          pr={selectedPr}
+          onClose={() => setSelectedPrId('')}
+          onSelectSignal={selectReleaseSignal}
+          onRecord={(id) => { setSelectedPrId(''); setDecisionPrId(id); }}
+        />
+      )}
+
+      {decisionPr && (
+        <ReleaseDecisionDialog
+          pr={decisionPr}
+          githubStale={Boolean(health?.release_stream?.last_error || !health?.release_stream?.last_success_at)}
+          onClose={() => setDecisionPrId('')}
+          onSubmit={(decision, reviewer, note) => recordReleaseDecision(decisionPr.id, decision, reviewer, note)}
+        />
+      )}
 
       {selectedSignalId && (
         <SignalDrawer

@@ -28,6 +28,15 @@ class Dependency:
     exact: bool
 
 
+def is_test_path(path: str) -> bool:
+    """Exclude tests, fixtures and snapshots from configured-model evidence."""
+    parts = PurePosixPath(path).parts
+    if any(part.lower() in {"test", "tests", "fixtures", "__fixtures__", "testdata", "test_data", "snapshots", "__snapshots__", "__mocks__"} for part in parts[:-1]):
+        return True
+    name = parts[-1].lower()
+    return bool(re.search(r"(?:^|[._-])(?:test|spec)(?:[._-]|$)", name))
+
+
 def snippet_at(content: str, line: int) -> str:
     lines = content.splitlines()
     return lines[line - 1].strip()[:300] if 0 < line <= len(lines) else ""
@@ -47,10 +56,10 @@ def evidence_for(content: str, path: str, needle: str, reason: str) -> list[dict
 
 
 def model_evidence(files: Mapping[str, str], model: str | None = None) -> list[dict]:
-    """Find configured model IDs in code/config, never documentation."""
+    """Find configured model IDs in code/config, never documentation or test fixtures."""
     result = []
     for path, content in sorted(files.items()):
-        if PurePosixPath(path).name in MANIFEST_NAMES or PurePosixPath(path).suffix not in CONFIG_SUFFIXES:
+        if is_test_path(path) or PurePosixPath(path).name in MANIFEST_NAMES or PurePosixPath(path).suffix not in CONFIG_SUFFIXES:
             continue
         for number, line in enumerate(content.splitlines(), 1):
             if comment_only(line):
@@ -59,18 +68,19 @@ def model_evidence(files: Mapping[str, str], model: str | None = None) -> list[d
             for match in matches:
                 match = match.rstrip(".-")
                 if model is None or match.lower() == model.lower():
-                    result.append({"file": path, "line": number, "snippet": line.strip()[:300], "reason": "Exact configured model identifier", "model": match})
+                    result.append({"file": path, "line": number, "snippet": line.strip()[:300], "reason": "Exact model identifier in selected code/config", "model": match})
     return result
 
 
 def production_models(files: Mapping[str, str]) -> list[str]:
+    """Identifiers in selected code/config; runtime invocation is not inferred."""
     return sorted({item["model"] for item in model_evidence(files)}, key=str.lower)
 
 
 def _kind(name: str) -> str:
     if name in {"next", "express", "fastapi", "django", "flask", "svelte"}:
         return "framework"
-    if name in {"openai", "anthropic", "@anthropic-ai/sdk", "google-generativeai", "@google/generative-ai"}:
+    if name in {"openai", "anthropic", "@ai-sdk/openai", "@ai-sdk/anthropic", "@anthropic-ai/sdk", "google-generativeai", "@google/generative-ai"}:
         return "ai_sdk"
     if name in {"react", "vue", "svelte", "react-dom"}:
         return "ui"

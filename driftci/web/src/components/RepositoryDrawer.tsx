@@ -87,7 +87,7 @@ export function RepositoryDrawer({ data, health, busy, onClose, onConnect, onRep
         </span>
         <dl>
           <div><dt><GitBranch aria-hidden="true" />Branch</dt><dd><code>{data.workspace.branch}</code></dd></div>
-          <div><dt><Server aria-hidden="true" />Environment</dt><dd>{data.workspace.environment}</dd></div>
+          <div><dt><Server aria-hidden="true" />Scope</dt><dd>{data.workspace.environment}</dd></div>
           <div><dt><Globe2 aria-hidden="true" />Last scan</dt><dd>{relativeTime(health?.last_scan_at ?? null)}</dd></div>
           <div><dt><Github aria-hidden="true" />GitHub</dt><dd>{health?.github.mode ?? 'Status unavailable'}</dd></div>
         </dl>

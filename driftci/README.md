@@ -1,38 +1,47 @@
 # DriftCI
 
-### The web, watched. The blast radius, known.
+### The world can change after review.
 
-DriftCI watches the official web pages your software depends on and connects their changes to exact repository evidence. **Context.dev** retrieves clean page snapshots and scoped research results; DriftCI compares successive snapshots, maps relevant changes to installed packages and configured models, and gives reviewers a traceable decision queue. OSV and CISA KEV add vulnerability and known-exploited intelligence.
+DriftCI connects **live GitHub pull requests and CI** to the **official web evidence** your application depends on. Pull requests, reviews, checks and Context.dev observations share one durable event timeline. Reviewers can see whether external evidence is still relevant and record a decision for one exact commit and evidence snapshot.
+
+**Context.dev** retrieves and searches official model lifecycle, pricing, SDK-release and status pages. DriftCI owns repository analysis, change detection, evidence mapping, local polling and review decisions. OSV and CISA KEV supply separate vulnerability evidence.
 
 **Live demo:** [driftci.ajc.contexio.fi](https://driftci.ajc.contexio.fi) · public, login-free evaluation workspace.
 
-![DriftCI Web Watch](docs/screenshots/web-watch.png)
+![DriftCI Release Room](docs/screenshots/release-room.png)
 
 ```text
-Official docs / releases / pricing             Your repository
-              │                                       │
-     Context.dev scrape + scoped search        Selective, pinned-commit reads
-              │                                       │
-     snapshots → observed diffs                 manifests / models / source
-              │                                       │
-              └──────────► source-to-code impact ◄────┘
-                                   │
-                     ┌─────────────┴──────────────┐
-                     ▼                            ▼
-          Reviewed web-change decision     CVE response checklist
-          with primary receipts            with advisory receipts
+GitHub pull requests / reviews / checks      Official web pages
+                 │                         Context.dev scrape + scoped search
+        ETag polling or verified webhook                │
+                 │                          normalized snapshots + observed diffs
+                 └───────────────────┬──────────────────┘
+                                     ▼
+                       PR head + changed-diff evidence
+                                     │
+                         sequenced events / SSE replay
+                                     │
+                    named local decision + exact-head receipt
 ```
 
 ## What works
 
-- **Repository-derived web watches.** Configured OpenAI/Anthropic models and supported installed packages select up to six relevant official deprecation, pricing and release pages per refresh. Irrelevant providers are not queried.
-- **Real change observations.** The first successful retrieval establishes a baseline. A later content change creates a persistent observation with added/removed line counts, bounded diff excerpts, content hashes and retrieval provenance. Initial baselines never masquerade as new alerts.
-- **Source-to-code impact.** Changed pricing/model text is matched against exact model identifiers. Release watches attach their installed dependency declarations. Every signal leads to primary sources and repository locations, then supports **Mark reviewed** and **Resolve** workflow transitions.
-- **Custom watches.** Add a public HTTPS status page, policy or changelog. Watches are capped at 12 custom URLs and share the same snapshot/cache pipeline.
-- **Scoped Context.dev research.** One official-domain search per refresh adds up to five citable results with exact repository-term matches. The backend rejects results from outside the requested official host.
-- **Vulnerability response.** OSV determines affected installed versions, CISA KEV marks known exploitation, and repository analysis adds labelled reachability clues. Persistent checklists, CVE history and Markdown incident exports support the response.
+- **A live Release Room.** Read recent public pull requests, exact head commits, changed files, reviews and GitHub check runs without downloading the repository again. GitHub reviews are displayed separately from local DriftCI decisions.
+- **Durable events and browser updates.** SQLite assigns monotonically increasing event IDs. `/api/events/stream` supports replay, `Last-Event-ID` and reconnecting browser updates. Initial indexing is marked as a baseline; live polling does not synthesize activity.
+- **Post-review evidence checks.** A later relevant official-web observation can mark an earlier approval or local decision stale. A new PR head also invalidates the earlier decision. The source diff, PR head, review time and observation time remain inspectable.
+- **Accountable release decisions.** A named reviewer records `ready` or `hold` locally for one PR head and evidence hash. Ready decisions require fresh GitHub retrieval and complete bounded file/review/check coverage; pending or failing checks block ready. Neither operation approves, merges or modifies GitHub.
+- **Repository-derived Context.dev watches.** Up to six relevant official deprecation, pricing, SDK/framework-release and status pages derive from configured models and installed packages. One scoped official-domain search adds at most five research results.
+- **Persistent web observations.** The first successful snapshot is a baseline. Subsequent normalized content differences create bounded added/removed excerpts, content hashes and retrieval provenance. Stock page timestamps and navigation are not semantic service-status changes.
+- **Precise PR matching.** Matching uses added/context lines and current paths from bounded PR diffs. Removed lines and deleted files do not count as current configuration. Existing repository evidence supplies additional paths, with explicit partial-coverage limits.
+- **Evidence and incident response.** Exact model lifecycle matches connect official receipts to code. OSV/CISA findings retain installed-version evidence, uncertainty labels, ordered incident checklists, history and Markdown exports. Reachability clues are not proof of exploitability.
 
-The UI distinguishes **live**, **cached**, **historical replay**, **partial**, and **unconfigured** evidence. It has no AI patch-generation buttons.
+The interface distinguishes **live**, **cached**, **historical replay**, **partial**, **stale** and **unconfigured** evidence. It has no AI patch-generation actions.
+
+## Current public demonstration
+
+The connected public workspace is **`vercel/ai`**, a large real AI SDK monorepo. Its selective source index is explicitly partial: **120 files**, pinned to one main-branch commit, without a clone or archive. The Release Room reads a recent window of at most ten PRs and retrieves bounded detail incrementally. This is a public-repository demonstration, not a Vercel-operated release console or an endorsement of GitHub approvals.
+
+`junction/orders-ai` remains the small deliberately outdated example. Use **Repository and demo controls** to restore it or replay the clearly labelled historical OpenAI retirement. Live sources and historical replay are separate states.
 
 ## Quickstart
 
@@ -45,95 +54,95 @@ cd web && npm run build && cd ..
 .venv/bin/python -m uvicorn server.main:app --host 127.0.0.1 --port 8100
 ```
 
-Open **http://127.0.0.1:8100**. The seeded `junction/orders-ai` example works without credentials or network access. Use **Repository and demo controls** to connect a public GitHub repository, restore the example, or replay a clearly labelled historical model retirement.
+Open **http://127.0.0.1:8100**. The seeded example works without credentials or network access. Use `make api` and `make web` in separate terminals for development; Vite listens on 5173 and proxies the API to 8100.
 
-For development, run `make api` and `make web` in separate terminals. Vite listens on port 5173 and proxies the API to port 8100.
-
-## Context.dev usage and budget
-
-Set the key outside source control:
+Set Context.dev credentials outside source control:
 
 ```bash
 set -a
-. ~/.config/contextdev/api.env   # CONTEXTDEV_API_KEY=...
+. ~/.config/contextdev/api.env
 set +a
-.venv/bin/python -m uvicorn server.main:app --host 127.0.0.1 --port 8100
 ```
 
-Click **Refresh web**. The backend retrieves official pages with `POST /v1/web/scrape` and performs at most one relevant `POST /v1/web/search`. Individual failures preserve last-known evidence and are reported on the affected source.
+Optional GitHub settings use `DRIFTCI_GITHUB_TOKEN` and `DRIFTCI_GITHUB_WEBHOOK_SECRET`; see `.env.example`. The GitHub token is sent only to `api.github.com`. The webhook secret is separate. Release polling remains the fallback when no webhook is configured.
 
-Rate and credit controls are deliberate:
+## Request and credit controls
 
-| Control | Default |
+| Source or operation | Default bound |
 |---|---|
-| Fresh scrape cache / scoped-search cache | 6 hours |
-| Global Context.dev request pacing | 6.2 seconds |
-| Official scraped pages per refresh | 6 maximum |
-| Scoped searches per refresh | 1 maximum, 5 results |
-| Local daily credit ceiling | 80, reserving expected credits before each request |
-| Local scan serialization/cooldown | One shared lock / 30 seconds |
-| Background polling | Every 15 minutes when enabled |
+| Ordinary Context.dev scrape/search cache | 6 hours |
+| Provider-status cache | 300 seconds |
+| Hot provider-status cache | 45 seconds; eligible on the next release poll |
+| Context.dev request pacing | 6.2 seconds |
+| Context.dev sources / searches per ordinary refresh | 6 pages / 1 search with up to 5 results |
+| Context.dev local daily ceiling | 80 credits, reserved before a request |
+| Background full web/CVE refresh | 15 minutes, shared scan lock and 30-second cooldown |
+| Recent GitHub PR polling | 90 seconds, with persistent ETags |
+| Recent PR baseline window | At most 10 records |
+| New PR detail turns | 2 PRs per polling pass, 3 detail reads each |
+| PR changed files | First 30 files, 12,000 diff characters per file |
+| Reviews / check runs | First 50 per PR/head |
+| GitHub release metadata response | 2 MB maximum |
+| Repository source index | 120 files, 4 MB total, 1 MB per file, 25 seconds |
+| GitHub webhook payload | 512 KB maximum, HMAC-SHA256 required |
 
-Fresh-cache hits consume no new Context.dev call. When the daily ceiling is reached, fresh cache remains available and new calls stop with a visible source error. `DRIFTCI_CONTEXT_CACHE_TTL`, `CONTEXTDEV_MIN_INTERVAL`, `CONTEXTDEV_MAX_SOURCES`, and `CONTEXTDEV_DAILY_CREDIT_LIMIT` adjust these bounds server-side.
+Hot status mode applies when an open PR has pending checks or was updated within 15 minutes. It does not make ordinary pricing and documentation pages poll every 45 seconds. Cached Context.dev responses consume no new request. PR events retrieve metadata and bounded diffs, not a full repository rescan or search request.
 
-The UI counters are **locally recorded** requests and credits. They are not a substitute for account-side dashboard reconciliation. The background watcher is local polling with persistent baselines and diffs; DriftCI does not create or claim Context.dev monitor resources, monitor IDs, webhooks, or remote schedules.
+Permanent bounds, such as a 30-file PR window or omitted large-file patch, do not cause the same PR detail to be downloaded every cycle. Failed detail requests remain retryable when the PR is retried. Partial evidence stays marked as partial and cannot receive a ready decision.
 
-OSV and CISA use their own public endpoints and caches. They are not proxied through Context.dev.
+GitHub quota errors retain existing evidence and create a visible source warning. Persistent retry windows honor `Retry-After` and reset headers; repeated failures without retry metadata use bounded exponential backoff. A suppressed retry makes no upstream request. A least-privilege read-only token is recommended for an active public demonstration because anonymous GitHub API capacity is small.
 
-## Selective GitHub reading
+Context.dev counters are **locally recorded** request and credit usage, not account-side billing reconciliation. Ordinary polling is local DriftCI polling using Context.dev Scrape/Search. **No Context.dev monitor resource, monitor ID, remote schedule, monitor webhook or monitor-side run history is claimed.** An optional verified GitHub webhook is a separate integration.
 
-Use **Connect repository** with a canonical public `https://github.com/owner/repository` URL. DriftCI:
+OSV and CISA use their own public endpoints. They do not consume Context.dev credits.
 
-1. Resolves repository metadata, default branch and immutable commit SHA through GitHub's API.
-2. Reads recursive tree metadata at that commit, rather than downloading a clone or archive.
-3. Selects dependency manifests first, then allowlisted application source/config files. Documentation, media, tests, `node_modules`, build output, caches and vendor directories are excluded.
-4. Reads selected UTF-8 files from `raw.githubusercontent.com` at the same pinned commit.
-5. Retains nested manifest scopes and reports bytes, commit, skipped files, timeouts and partial coverage.
+## Source and evidence boundaries
 
-Defaults are **120 selected files / 4 MB total / 1 MB per file / 25 seconds** for source reads, with eight concurrent reads and a 6-second per-file deadline. The whole connection has a 90-second timeout. Adjust file/byte limits with `DRIFTCI_GITHUB_FILE_LIMIT`, `DRIFTCI_GITHUB_BYTE_LIMIT`, and `DRIFTCI_GITHUB_FILE_BYTE_LIMIT`.
+Repository connection accepts a canonical public `https://github.com/owner/repository` URL. DriftCI resolves a commit, reads its tree and selectively fetches manifests and application/config source. Root manifests and runtime provider integrations are prioritized over nested examples; tests, fixtures, snapshots, vendor trees, build output, documentation and media are excluded from model evidence. Source is read as untrusted text and never installed, imported or executed.
 
-The inventory covers supported npm/PyPI manifests, not every native/transitive component of a large repository. Partial source or vulnerability coverage never proves absence or safety. OSV queries at most 32 exact installed packages with four concurrent workers and a 25-second batch deadline; pending packages are shown explicitly.
+Nested manifest scopes are preserved. Large repositories and package sets may be partially covered. Context.dev receives requested public web URLs and repository-derived search terms, never source contents. OSV receives exact installed package/version tuples only.
 
-Repository code and package scripts are never installed, imported, or executed. Source contents stay out of Context.dev calls; OSV receives only ecosystem/package/version queries. A GitHub token, if configured, is used only on `api.github.com` and is never forwarded to the raw host.
+PR evidence accounts for real coverage boundaries:
 
-## Core workflows
+- Pull-list metadata is not the same as a complete file, review and check retrieval.
+- The source inventory is a base-branch pinned commit. Each PR separately stores a bounded diff at its head; it is not a fresh repository-wide source index.
+- Model identifiers found in source, including SDK compatibility catalogs, do not prove runtime invocation.
+- Omitted, binary or truncated patches keep file coverage incomplete.
+- Only added/context lines participate in matching; deleted code is not current code at the PR head.
+- A stable coverage bound does not justify repeated downloads. A changed head or a retried request can retrieve fresh detail.
+- GitHub checks are recorded, not executed by DriftCI. No reported checks does not mean tests passed.
+- GitHub approvals and local release decisions are distinct records.
 
-### Live web change → review
+## Review-to-release workflow
 
-1. Open **Web Watch** to inspect inferred sources, the local daily budget and scoped research.
-2. The first retrieval establishes a baseline. Later changed snapshots appear with added/removed lines and source hashes.
-3. Open a signal to inspect its primary receipt and exact source/dependency locations.
-4. Review the recommendation, validate impact in the application, then mark it reviewed or resolve it.
-
-### Model retirement
-
-The example contains `gpt-4-0314` in two production source locations. A live OpenAI lifecycle-page retrieval produces exact retirement evidence and migration guidance. The optional replay uses the same shape with an explicit **historical replay** label.
-
-### CVE response
-
-1. Open **Vulnerabilities** and inspect the OSV/CISA receipts, installed range and fixed version.
-2. Treat repository reachability as a clue, not proof of exploitability.
-3. Complete acknowledge, contain, patch, verify and resolve steps in order.
-4. Export the Markdown incident record with impact, uncertainty, evidence and response timestamps.
-
-The intentionally outdated example can return many real Next.js advisories during a live OSV scan. Findings are retained rather than hidden to make the dashboard quieter.
+1. **Open Release Room.** Inspect the PR head, changed files, checks and matching external evidence. Check the independent GitHub freshness and event-stream indicators.
+2. **Inspect external evidence.** Follow official receipts and bounded before/after excerpts. `Review external evidence` can refer to an existing lifecycle baseline; `External evidence postdates approval` specifically compares a new observation with the retrieved approval time.
+3. **Resolve material uncertainty.** Use Web Watch or the Change Inbox to inspect the external source. Existing review/resolve states do not replace application validation.
+4. **Record a local decision.** The named reviewer supplies an optional evidence note, then records ready or hold. The receipt binds that person, PR head and evidence hash.
+5. **Export the Markdown record.** It contains exact head/evidence hashes, retrieved checks, files, source fingerprints, acknowledgment notes and remaining limitations.
+6. **Revisit after change.** A later matching observation or a new head makes the previous decision stale. DriftCI never merges, deploys or silently restores a previous approval.
 
 ## API
 
-Interactive FastAPI documentation is available at `/docs`.
+Interactive FastAPI documentation is available at `/docs`. JSON API responses use `Cache-Control: no-cache`.
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/health` | Integration status, local polling and Context.dev usage/budget |
-| `GET /api/bootstrap` | Workspace, signals, sources, observations, research, dependencies and incidents |
-| `POST /api/scan` | Shared-cache source and vulnerability refresh |
+| `GET /api/health` | Context.dev budget, source health and independent GitHub release-stream freshness |
+| `GET /api/bootstrap` | Workspace, PRs, events, signals, sources, dependencies and incidents |
+| `POST /api/scan` | Ordinary shared-cache web and vulnerability refresh |
+| `POST /api/releases/refresh` | Bounded PR/check ingestion and activity-scoped status watching |
+| `GET /api/events/stream?after=SEQ` | Replay and follow monotonically sequenced events over SSE |
+| `POST /api/github/webhook` | Verified GitHub input, when its separate secret is configured |
+| `POST /api/releases/{id}/decision` | Record named local `ready`/`hold` for an exact head/evidence set |
+| `GET /api/releases/{id}/report` | Export the exact-head Markdown release decision receipt |
 | `POST /api/repositories/connect` | Selectively read and scan a public GitHub repository |
-| `GET /api/signals` / `GET /api/signals/{id}` | Filter or inspect source-to-code decisions |
-| `POST /api/signals/{id}/state` | Mark reviewed, monitoring, needs action, or resolve non-CVE signals |
+| `GET /api/signals` / `GET /api/signals/{id}` | Filter or inspect source-to-code evidence |
+| `POST /api/signals/{id}/state` | Record human review state for non-CVE signals |
 | `POST /api/watches` / `DELETE /api/watches/{key}` | Add/remove a public custom HTTPS watch |
-| `GET /api/incidents` | Active and resolved vulnerability response |
-| `POST /api/incidents/{id}/actions/{action}` | Update ordered incident checklist state |
-| `GET /api/incidents/{id}/report` | Download a Markdown incident-response record |
+| `GET /api/incidents` | Active vulnerability response and retained history |
+| `POST /api/incidents/{id}/actions/{action}` | Update the ordered response checklist |
+| `GET /api/incidents/{id}/report` | Export a Markdown incident record |
 | `POST /api/demo/replay` / `POST /api/demo/reset` | Replay/reset the labelled historical example |
 
 ## Tests and validation
@@ -142,21 +151,30 @@ Interactive FastAPI documentation is available at `/docs`.
 make test
 ```
 
-This builds the TypeScript frontend and runs **35 backend tests** without live network dependencies. Tests cover inventory parsing, advisory ranges, lifecycle tables, cache accounting, budget enforcement, first-baseline versus subsequent-change behavior, bounded diffs, official-host filtering, custom URLs, review transitions, selective pinned-commit reads and partial coverage.
+This builds the frontend and runs **48 backend tests**. Coverage includes lifecycle parsing, live mocked observations, cache/credit accounting, repository inventory and partial source reads, event replay, HMAC validation and deduplication, PR head changes, later external evidence, decision expiry, removed-code diffs, oversized patches, ETag quiet polling and rate-limit suppression.
 
-Run real Chromium QA against a running service:
+Run real Chromium QA:
 
 ```bash
-DRIFTCI_URL=http://10.0.2.2:8100 ./scripts/browser-smoke-docker.sh
+# The release suite read-only by default against a real connected workspace.
+DRIFTCI_URL=https://driftci.ajc.contexio.fi \
+  DRIFTCI_QA_SCRIPT=release-smoke.cjs ./scripts/browser-smoke-docker.sh
+
+# Explicitly exercise a local pause on the shared workspace; never changes GitHub.
+DRIFTCI_RELEASE_DECISION_QA=1 \
+  DRIFTCI_URL=http://10.0.2.2:8100 \
+  DRIFTCI_QA_SCRIPT=release-smoke.cjs ./scripts/browser-smoke-docker.sh
+
+# Legacy review/incident UI. The wrapper ALWAYS starts an isolated offline
+# server and a fresh database, even if a public target was supplied.
+DRIFTCI_QA_OUT=/tmp/driftci-legacy-final \
+  DRIFTCI_QA_SCRIPT=browser-smoke.cjs ./scripts/browser-smoke-docker.sh
 ```
 
-The current suite checks the live-source Mission Control, signal review, five-watch Web Watch and research receipts, the no-patch change inbox, CVE checklist/export/history, selective source bounds, and 390px layouts with zero JavaScript errors. It resets the shared demo unless `DRIFTCI_KEEP_WORKSPACE=1` is set. Its refresh honors the same cooldown and six-hour caches as the product.
+The wrapper defaults to the Release Room script and accepts one optional target argument. Legacy reset/replay actions are confined to the isolated database. The isolated legacy suite checks the empty offline watch state; actual repository-derived watches and research receipts belong to the public release QA. The release suite verifies an independent browser SSE frame, persisted decision, Markdown receipt and 390px layouts. JavaScript errors and horizontal overflow fail the test.
 
-## Engineering and deployment
+## Stack and deployment
 
-- FastAPI, SQLite, httpx and Pydantic on the backend.
-- React, TypeScript, Vite, Inter and lucide-react on the frontend.
-- Atomic SQLite writes; compact per-source snapshots and bounded observation history.
-- Sanitized, length-capped web text; no repository or web-content execution.
-- Production service `driftci-app` on `127.0.0.1:8100`; Caddy serves the public HTTPS route.
-- See `DEMO.md`, `THREAT_MODEL.md`, `EVIDENCE.md`, and `HANDOFF.md` for the demo script, boundaries, live validation and operational state.
+FastAPI, Python, SQLite, httpx, Pydantic, React, TypeScript, Vite, Inter and lucide-react. Production runs as the `driftci-app` systemd user service on `127.0.0.1:8100`, with Caddy serving the public HTTPS route.
+
+See `DEMO.md`, `PRODUCT.md`, `THREAT_MODEL.md`, `EVIDENCE.md` and `HANDOFF.md` for demonstration instructions, the API contract, security boundaries, measured validation and current operational state.

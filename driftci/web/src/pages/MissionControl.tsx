@@ -246,7 +246,7 @@ export function MissionControl({ data, health, onNavigate, onSelectSignal }: {
       </div>
 
       <section className="operations-strip" aria-label="Response metrics">
-        <div><Layers3 aria-hidden="true" /><span>Production models</span><strong>{data.summary.production_models}</strong></div>
+        <div><Layers3 aria-hidden="true" /><span>Model identifiers</span><strong>{data.summary.production_models}</strong></div>
         <div><CheckCircle2 aria-hidden="true" /><span>Resolved this month</span><strong>{data.summary.resolved_this_month}</strong></div>
         <div><Clock3 aria-hidden="true" /><span>Mean response</span><strong>{data.summary.mean_response_hours} h</strong></div>
       </section>

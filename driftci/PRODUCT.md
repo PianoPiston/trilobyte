@@ -1,6 +1,6 @@
 # DriftCI product and API contract
 
-DriftCI turns official web changes into repository-aware review decisions. Context.dev supplies normalized page content and scoped research. DriftCI owns repository selection, local polling, snapshots, change observations, evidence matching, review state and vulnerability response.
+DriftCI connects live pull requests and CI to official web evidence. The Release Room is the primary workflow: recent GitHub changes, checks, reviews and Context.dev observations share one durable event timeline. Repository-aware review and vulnerability response remain available alongside it. Context.dev supplies normalized page content and scoped research. DriftCI owns repository selection, local polling, snapshots, change observations, evidence matching, review state and vulnerability response.
 
 ## Product principles
 
@@ -10,8 +10,11 @@ DriftCI turns official web changes into repository-aware review decisions. Conte
 4. **Coverage and cost are product data.** Partial repository/package scans are warnings, and local Context.dev usage is visible beside its ceiling.
 5. **Repository code stays local.** Only manifests and allowlisted source text are read. Code is not sent to Context.dev or executed.
 
+6. **Release decisions have exact scope.** A named reviewer records a local ready/hold decision for one PR head, evidence fingerprint and check-run snapshot. Human review flags alone do not change the external-evidence fingerprint. GitHub approvals, CI results and DriftCI decisions remain separate records.
+
 ## Main screens
 
+- **Release Room:** recent PRs, exact heads, bounded changed files, checks, review freshness, matching external evidence, the live event timeline and local release decisions.
 - **Mission Control:** Context.dev pulse, risk/decision metrics, ranked signals, source health, highest-impact dependencies and recent activity.
 - **Web Watch:** daily usage/credit ceiling, custom-watch form, observed-change diffs, inferred watchlist and official-domain research results.
 - **Change Inbox:** searchable/filterable deprecation, vulnerability, API, pricing and status signals. No patch-generation actions.
@@ -28,7 +31,7 @@ All endpoints are under `/api`. JSON API responses use `Cache-Control: no-cache`
 ```json
 {
   "ok": true,
-  "version": "1.1.0",
+  "version": "2.0.0",
   "context_dev": {
     "configured": true,
     "mode": "live",
@@ -49,11 +52,23 @@ All endpoints are under `/api`. JSON API responses use `Cache-Control: no-cache`
     "interval_seconds": 900,
     "scan_cooldown_seconds": 30,
     "implementation": "local polling with independent Context.dev cache and credit budget"
+  },
+  "release_stream": {
+    "enabled": true,
+    "poll_interval_seconds": 90,
+    "webhook_configured": false,
+    "last_polled_at": "2026-11-15T04:22:17Z",
+    "last_success_at": "2026-11-15T04:22:17Z",
+    "last_error": null,
+    "detail_pending": 0,
+    "sse_path": "/api/events/stream",
+    "status_cache_ttl_seconds": 300,
+    "status_hot_ttl_seconds": 45
   }
 }
 ```
 
-Counters are locally recorded, not remote account reconciliation. `watcher` describes DriftCI's local timer, not a Context.dev monitor resource.
+The values above illustrate response shape rather than current billing. Counters are locally recorded, not remote account reconciliation. `watcher` describes DriftCI's ordinary web timer, not a Context.dev monitor resource. `release_stream` separately describes GitHub ingestion and activity-scoped status watches. Its last successful retrieval and last error remain visible when retained evidence is stale.
 
 ### `GET /api/bootstrap`
 
@@ -61,12 +76,45 @@ Returns:
 
 - `workspace`: repository identity, branch and optional selective-read coverage.
 - `summary`: risk, active changes, affected dependencies, production models, watched sources and observed changes.
+- `release.pull_requests`: recent PRs with exact head SHA, bounded files/checks/reviews, matched external evidence and a fact-based evidence hash. Decisions are returned only when the current head/evidence hash matches. An expired decision is returned separately.
+- `release.events`: sequenced, deduplicated GitHub, web and local-decision records. Initial imports carry `baseline=true`. Publication/occurrence and local receipt timestamps are distinct.
+- `release.latest_seq` and `release.status`: the event cursor and independent GitHub freshness/transport state.
 - `signals`: complete decision objects ordered by state/severity.
 - `sources`: source health, category, baseline/change timestamps and at most 12 public observations per source. Internal markdown snapshots are omitted.
 - `changes`: flattened observations ordered newest first, each with optional `signal_id` and repository-matched terms.
 - `discoveries`: up to five official-host research results.
 - `research`: scoped query, retrieval timestamp and mode when available.
 - `dependencies`, `activity`, `incidents`, `history`, and local usage `metrics`.
+
+### Release ingestion and events
+
+`POST /api/releases/refresh` retrieves a recent PR window and bounded detail, then refreshes only status sources with activity-scoped TTLs. It does not run the full repository source reader or ordinary six-hour documentation/search refresh.
+
+- At most 10 recent PRs are retained in the display window, with at most 2 detail turns per pass.
+- A detail turn fetches at most 30 files and 12,000 diff characters per file, plus at most 50 reviews and 50 check runs. Omitted, truncated or potentially paginated evidence remains incomplete.
+- An unchanged settled PR is quiet after its coverage settles. Known structural limits are not repeatedly downloaded; request failures and known-pending checks remain retryable.
+- Pending or failing checks block ready, irrespective of complete file coverage.
+- Matching uses current paths and added/context diff lines. Removed lines and deleted files are excluded. The associated repository index and PR detail stay explicitly partial.
+
+`GET /api/events/stream` returns durable monotonically sequenced events over SSE. `after=SEQ` and `Last-Event-ID` replay unseen records. Connection and keepalive comments are not changes. Baseline imports are distinguished from later observations. The browser advances its cursor, coalesces refreshes and remains usable if the upstream GitHub API is rate limited.
+
+`POST /api/github/webhook` requires `DRIFTCI_GITHUB_WEBHOOK_SECRET` and live mode. It requires an HMAC-SHA256 signature, supported event and expected repository, deduplicates the delivery, then reconciles actual state through the GitHub reader. Request bodies are limited to 512 KB. Missing configuration returns 503 and invalid signatures return 401. Webhooks do not send release commands to GitHub.
+
+GitHub polling persists ETags and transport health. Rate-limit and retry headers drive a window in which scheduled upstream requests are suppressed. Repeated failures without retry metadata use bounded exponential backoff. Partial evidence and source errors cannot be presented as fresh or complete coverage.
+
+### Release decisions and receipts
+
+`POST /api/releases/{pr_id}/decision` accepts:
+
+```json
+{"decision": "ready", "reviewer": "Release owner", "note": "Evidence and application-owned validation reviewed."}
+```
+
+Allowed decisions are `ready` and `hold`. A reviewer name of 1–80 characters and a note of at most 1000 characters are required; only the note may be empty. Incomplete detail or running/failing checks block ready. A hold can record those limitations without claiming a GitHub approval.
+
+The evidence hash covers relevant observation timestamps and source fingerprints, lifecycle/fixed-version facts, mapped paths and check-run ID/status/conclusion. Marking a signal reviewed or resolved does not itself invalidate the decision. A new head, changed relevant evidence or changed check-run snapshot does. Resolved findings do not create new active-review work, while their source history stays inspectable.
+
+`GET /api/releases/{pr_id}/report` exports Markdown containing the current head, evidence hash, check/file coverage, current and expired local decisions, reviewer notes, external source fingerprints and limitations. It never claims that DriftCI executed application CI, approved/merged a GitHub PR, deployed the change or proved runtime safety.
 
 ### Signal object
 
@@ -143,7 +191,8 @@ Custom watch keys come from the source ID after removing its `src-` prefix.
 
 - `POST https://api.context.dev/v1/web/scrape` retrieves markdown for at most six relevant sources per refresh.
 - `POST https://api.context.dev/v1/web/search` runs at most one scoped query with five results and highlights enabled.
-- Cache TTL defaults to six hours for both methods; request starts are paced at 6.2 seconds.
+- Ordinary cache TTL defaults to six hours for both methods; status sources use 300 seconds normally and 45 seconds during defined release activity, on the next 90-second release poll.
+- Request starts are paced at 6.2 seconds.
 - Scrape/search calls reserve 1/2 expected credits before a fresh request and stop at the configured daily ceiling.
 - Successful live responses record `credits_consumed` from `key_metadata`, with conservative fallback estimates.
 - Result pages must match the scoped official hostname. Text is sanitized and excerpts are bounded.

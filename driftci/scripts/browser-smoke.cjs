@@ -38,13 +38,14 @@ async function api(pathname, method = 'GET') {
 
   try {
     await api('/demo/reset', 'POST');
-    await api('/scan', 'POST'); // Uses the six-hour cache when present; never forces extra credits.
+    await api('/scan', 'POST'); // Isolated offline server: no external web credits.
     await page.goto(BASE, { waitUntil: 'networkidle' });
+    await page.locator('.main-navigation').getByRole('button', { name: /^Workspace$/ }).click();
     await page.getByRole('heading', { name: 'Live changes. Exact blast radius.' }).waitFor();
     assert((await page.title()).includes('DriftCI'), 'Document title is not branded');
     assert(await page.getByText('Live web memory · Context.dev', { exact: true }).count() > 0, 'Context.dev pulse is missing');
     assert(await page.getByRole('button', { name: /generate|review patch|export patch/i }).count() === 0, 'Patch-generation actions are still visible');
-    checks.push('Mission control with live web pulse and cached live-source refresh');
+    checks.push('Mission control and labelled offline demo state');
     await capture(page, 'overview.png');
 
     await page.locator('.decision-item').filter({ hasText: 'gpt-4-0314' }).first().click();
@@ -60,12 +61,14 @@ async function api(pathname, method = 'GET') {
 
     await page.locator('.main-navigation').getByRole('button', { name: /Web Watch/ }).click();
     await page.getByRole('heading', { name: 'Know when the source changes.' }).waitFor();
-    assert(await page.locator('.watch-source-row').count() >= 5, 'Repository-derived watches are missing');
-    assert(await page.locator('.discovery-card').count() > 0, 'Context.dev research results are missing');
-    assert(await page.getByText('Baselines, not false alarms', { exact: true }).count() > 0, 'Initial-baseline behavior is not explained');
+    // The wrapper runs this workflow offline. Real source/research receipt QA
+    // belongs to release-smoke.cjs on the read-only connected workspace.
+    assert(await page.locator('.watch-source-row').count() === 0, 'Offline mode unexpectedly fabricated repository watches');
+    assert(await page.locator('.discovery-card').count() === 0, 'Offline mode unexpectedly fabricated research results');
+    await page.getByText('Baselines, not false alarms', { exact: true }).waitFor();
     await page.locator('#root').getByText('Context.dev web intelligence', { exact: true }).waitFor();
     await capture(page, 'web-watch.png');
-    checks.push('Five live watches, Context.dev budget and scoped research receipts');
+    checks.push('Offline-empty watch state without fabricated source or research activity');
 
     await page.locator('.main-navigation').getByRole('button', { name: /Change Inbox/ }).click();
     await page.getByRole('heading', { name: 'Follow the signal to the source.' }).waitFor();
@@ -115,6 +118,7 @@ async function api(pathname, method = 'GET') {
       await route.fulfill({ response, json: payload });
     });
     await page.reload({ waitUntil: 'networkidle' });
+    await page.locator('.main-navigation').getByRole('button', { name: /^Workspace$/ }).click();
     await page.getByTestId('partial-osv-notice').waitFor();
     await page.getByRole('button', { name: 'Repository and demo controls' }).click();
     await page.getByTestId('repository-coverage').waitFor();
@@ -128,6 +132,8 @@ async function api(pathname, method = 'GET') {
 
     await page.reload({ waitUntil: 'networkidle' });
     await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('button', { name: 'Open navigation' }).click();
+    await page.locator('.main-navigation').getByRole('button', { name: /^Workspace$/ }).click();
     await page.getByRole('heading', { name: 'Live changes. Exact blast radius.' }).waitFor();
     let dimensions = await page.evaluate(() => ({ width: innerWidth, scrollWidth: document.documentElement.scrollWidth }));
     assert(dimensions.scrollWidth <= dimensions.width + 1, `Mobile overview overflows: ${JSON.stringify(dimensions)}`);

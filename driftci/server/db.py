@@ -36,6 +36,20 @@ CREATE INDEX IF NOT EXISTS remediation_signal ON remediations(signal_id);
 CREATE TABLE IF NOT EXISTS sources (
     id TEXT PRIMARY KEY, status TEXT NOT NULL, data TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS pull_requests (
+    id TEXT PRIMARY KEY, number INTEGER NOT NULL, state TEXT NOT NULL, updated_at TEXT NOT NULL, data TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS pull_requests_updated ON pull_requests(state, updated_at);
+CREATE TABLE IF NOT EXISTS release_events (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, kind TEXT NOT NULL,
+    pr_id TEXT, occurred_at TEXT NOT NULL, received_at TEXT NOT NULL, data TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS release_events_cursor ON release_events(seq);
+CREATE TABLE IF NOT EXISTS release_decisions (
+    id TEXT PRIMARY KEY, pr_id TEXT NOT NULL, head_sha TEXT NOT NULL,
+    decision TEXT NOT NULL, evidence_hash TEXT NOT NULL, created_at TEXT NOT NULL, data TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS release_decision_pr ON release_decisions(pr_id, created_at);
 CREATE TABLE IF NOT EXISTS activity (
     id TEXT PRIMARY KEY, created_at TEXT NOT NULL, data TEXT NOT NULL
 );
@@ -111,15 +125,17 @@ class Database:
             db.execute("DELETE FROM files")
             db.executemany("INSERT INTO files(path,content) VALUES(?,?)", sorted(files.items()))
             if clear_operational:
-                for table in ("signals", "incidents", "remediations", "sources", "activity"):
+                for table in ("signals", "incidents", "remediations", "sources", "activity", "pull_requests", "release_events", "release_decisions"):
                     db.execute(f"DELETE FROM {table}")
             db.execute("INSERT INTO meta(key,value) VALUES('last_scan_at','null') ON CONFLICT(key) DO UPDATE SET value='null'")
+            db.execute("DELETE FROM meta WHERE key='vulnerability_baseline_at'")
 
     def reset_demo(self) -> None:
         with self.transaction() as db:
-            for table in ("signals", "incidents", "remediations", "sources", "activity"):
+            for table in ("signals", "incidents", "remediations", "sources", "activity", "pull_requests", "release_events", "release_decisions"):
                 db.execute(f"DELETE FROM {table}")
             db.execute("INSERT INTO meta(key,value) VALUES('last_scan_at','null') ON CONFLICT(key) DO UPDATE SET value='null'")
+            db.execute("DELETE FROM meta WHERE key='vulnerability_baseline_at'")
             self._seed_demo(db)
 
     def _seed_demo(self, db: sqlite3.Connection | None = None) -> None:
@@ -231,6 +247,67 @@ class Database:
     def delete_source(self, ident: str) -> None:
         with self.transaction() as db:
             db.execute("DELETE FROM sources WHERE id=?", (ident,))
+
+    def get_pull_request(self, ident: str) -> dict | None:
+        with self._lock:
+            return self._load(self._db.execute("SELECT data FROM pull_requests WHERE id=?", (ident,)).fetchone())
+
+    def list_pull_requests(self) -> list[dict]:
+        with self._lock:
+            rows = self._db.execute("SELECT data FROM pull_requests").fetchall()
+        return [json.loads(row["data"]) for row in rows]
+
+    @staticmethod
+    def _insert_release_event(db: sqlite3.Connection, data: dict) -> dict | None:
+        cursor = db.execute(
+            "INSERT OR IGNORE INTO release_events(id,kind,pr_id,occurred_at,received_at,data) VALUES(?,?,?,?,?,?)",
+            (data["id"], data["kind"], data.get("pr_id"), data["occurred_at"], data["received_at"], json.dumps(data, ensure_ascii=False)),
+        )
+        if not cursor.rowcount:
+            return None
+        row = dict(data, seq=cursor.lastrowid)
+        db.execute("UPDATE release_events SET data=? WHERE seq=?", (json.dumps(row, ensure_ascii=False), cursor.lastrowid))
+        return row
+
+    def save_pull_request(self, data: dict, events: list[dict] | None = None) -> list[dict]:
+        with self.transaction() as db:
+            db.execute(
+                "INSERT INTO pull_requests(id,number,state,updated_at,data) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET state=excluded.state,updated_at=excluded.updated_at,data=excluded.data",
+                (data["id"], data["number"], data["state"], data["updated_at"], json.dumps(data, ensure_ascii=False)),
+            )
+            return [event for item in events or [] if (event := self._insert_release_event(db, item)) is not None]
+
+    def add_release_event(self, data: dict) -> dict | None:
+        with self.transaction() as db:
+            return self._insert_release_event(db, data)
+
+    def list_release_events(self, after: int = 0, pr_id: str | None = None, limit: int = 100) -> list[dict]:
+        limit = min(500, max(1, limit))
+        with self._lock:
+            if after:
+                rows = self._db.execute("SELECT data FROM release_events WHERE seq>? AND (? IS NULL OR pr_id=?) ORDER BY seq LIMIT ?", (after, pr_id, pr_id, limit)).fetchall()
+            else:
+                rows = self._db.execute("SELECT data FROM release_events WHERE (? IS NULL OR pr_id=?) ORDER BY seq DESC LIMIT ?", (pr_id, pr_id, limit)).fetchall()[::-1]
+        return [json.loads(row["data"]) for row in rows]
+
+    def has_release_event(self, ident: str) -> bool:
+        with self._lock:
+            return self._db.execute("SELECT 1 FROM release_events WHERE id=?", (ident,)).fetchone() is not None
+
+    def latest_release_event_seq(self) -> int:
+        with self._lock:
+            row = self._db.execute("SELECT COALESCE(MAX(seq), 0) AS seq FROM release_events").fetchone()
+        return row["seq"]
+
+    def release_decision(self, pr_id: str) -> dict | None:
+        with self._lock:
+            return self._load(self._db.execute("SELECT data FROM release_decisions WHERE pr_id=? ORDER BY created_at DESC, rowid DESC LIMIT 1", (pr_id,)).fetchone())
+
+    def save_release_decision(self, data: dict) -> None:
+        with self.transaction() as db:
+            db.execute("INSERT INTO release_decisions(id,pr_id,head_sha,decision,evidence_hash,created_at,data) VALUES(?,?,?,?,?,?,?)", (
+                data["id"], data["pr_id"], data["head_sha"], data["decision"], data["evidence_hash"], data["created_at"], json.dumps(data, ensure_ascii=False),
+            ))
 
     def add_activity(self, kind: str, title: str, detail: str, created_at: str | None = None) -> dict:
         timestamp = created_at or utcnow()

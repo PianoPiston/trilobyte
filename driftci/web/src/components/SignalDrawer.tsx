@@ -116,7 +116,7 @@ export function SignalDrawer({ signalId, initialSignal, onClose, onSignalUpdated
             {signal.reachability && <div><dt>Repository reachability</dt><dd>{label(signal.reachability)}</dd></div>}
           </dl>
 
-          {signal.reachability && <p className="heuristic-caption">Reachability describes repository clues. Confirm exploitability against the deployed application.</p>}
+          {signal.reachability && <p className="heuristic-caption">{signal.reachability_reason || 'Reachability describes selected-source references. Confirm invocation and exploitability against the deployed application.'}</p>}
 
           {signal.change && (
             <section className="drawer-section">
@@ -131,7 +131,7 @@ export function SignalDrawer({ signalId, initialSignal, onClose, onSignalUpdated
 
           {signal.affected_assets.length > 0 && (
             <section className="drawer-section">
-              <div className="drawer-section-heading"><h3>Affected production assets</h3><span>{plural(signal.affected_assets.length, 'asset')}</span></div>
+              <div className="drawer-section-heading"><h3>Affected assets and references</h3><span>{plural(signal.affected_assets.length, 'asset')}</span></div>
               <div className="asset-list">{signal.affected_assets.map((asset) => <span key={asset}><PackageCheck aria-hidden="true" />{asset}</span>)}</div>
             </section>
           )}

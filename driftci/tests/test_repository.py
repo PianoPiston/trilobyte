@@ -10,8 +10,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from server.app import create_app
-from server.repository import RepositoryError, SourceLimits, parse_github, read_public
-from server.scanner import inventory, middleware_evidence
+from server.repository import RepositoryError, SourceLimits, candidate_priority, parse_github, read_public, supported_source
+from server.scanner import inventory, middleware_evidence, production_models
 from test_live_scan import NEXT_ADVISORY
 
 from conftest import make_settings
@@ -221,3 +221,16 @@ def test_nested_manifests_keep_distribution_and_lock_scope():
     assert by_package["django"]["manifest"] == "services/api/requirements.txt"
     assert middleware_evidence(files)[0]["file"] == "services/web/src/middleware.ts"
     assert middleware_evidence(files)[0]["line"] == 2
+
+
+def test_large_tree_budget_skips_fixtures_and_examples_before_application_source():
+    files = {
+        "src/config/models.ts": 'export const configured = "gpt-4-0314";',
+        "src/config/models.test.ts": 'export const fixture = "gpt-fake-test-model";',
+        "packages/anthropic/__fixtures__/response.json": '{"model":"claude-synthetic-fixture"}',
+        "examples/demo/model.ts": 'export const example = "gpt-example-only";',
+    }
+    assert production_models(files) == ["gpt-4-0314", "gpt-example-only"]
+    assert not supported_source("src/config/models.test.ts")
+    assert not supported_source("packages/anthropic/__fixtures__/response.json")
+    assert candidate_priority("src/config/models.ts") < candidate_priority("examples/demo/package.json")

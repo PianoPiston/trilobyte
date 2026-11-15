@@ -1,73 +1,81 @@
-# DriftCI — two-minute live demo
+# DriftCI demo guide
 
-## Opening (10 seconds)
+**Public demo:** https://driftci.ajc.contexio.fi
 
-> “Your code depends on web pages that package managers do not watch. DriftCI uses Context.dev to turn official docs, releases and pricing into persistent snapshots, then maps real changes to exact repository evidence.”
+The public workspace connects **`vercel/ai`**, a real AI SDK monorepo. It reads public GitHub metadata and a selective 120-file source index. DriftCI is not a Vercel-operated approval system, and identifier matches in SDK catalogs do not establish production model invocation.
 
-Open **Mission Control** on `junction/orders-ai`. Point out the Context.dev pulse, five official watches and source-to-code decision queue. The current public workspace uses live Context.dev receipts; optional historical examples are always labelled.
+## The five-minute tour
 
-## 1. Show the web watch (30 seconds)
+1. **Start in Release Room.** Show recent pull requests, exact head commits, GitHub checks and the independent event-stream connection. Select a PR whose file/check coverage is complete.
+2. **Inspect the release evidence.** Open **Inspect release**. The drawer contains the exact head, evidence hash, current files, checks, remote reviews and any matching external evidence. GitHub approvals and DriftCI local decisions are not the same thing.
+3. **Go to Web Watch.** Show the repository-derived official sources, persistent baselines, local Context.dev credit ceiling and scoped research. Ordinary pages use a six-hour cache; provider status watches accelerate only during defined release activity.
+4. **Inspect source-to-code evidence.** In Change Inbox or Workspace, inspect a model lifecycle or vulnerability record. Follow the primary receipt and code locations. Explain the difference between a source identifier, a supported SDK API definition and a runtime invocation.
+5. **Record a local decision.** Return to the PR inspector, select **Record decision**, supply a named reviewer and evidence notes, then record ready or hold. Ready requires a fresh GitHub source and complete bounded coverage. A pause can deliberately preserve a limitation.
+6. **Observe the event without reloading.** The new decision appears in the live event memory and updates the PR card. Explain that the same channel carries later commit, review, CI and external-web observations.
+7. **Export the receipt.** Select **Export decision**. The Markdown file includes the exact head, source/evidence fingerprints, checks, files, owner, note and residual limitations. A later head, external change or check-run update can expire that decision.
+8. **Show the supporting incident workflow.** Vulnerabilities combines OSV/CISA evidence with repository reachability clues, an ordered response checklist, retained history and a Markdown IR record. Heuristics do not prove exploitability.
 
-Open **Web Watch**.
+## Two-minute video outline
 
-- Show the inferred OpenAI deprecations and pricing pages, OpenAI Python SDK, Next.js and React release watches.
-- Show live/cached states and the local daily Context.dev credit budget. Explain the six-hour shared cache, 6.2-second pacing, six-scrape limit and single scoped search.
-- Point to **Baselines, not false alarms**: the first successful retrieval establishes state; only a later content change creates an observation.
-- Scroll to **Scoped web research**. Open an official result and explain that off-host results are rejected.
-- Optionally show the custom HTTPS watch form. Do not claim DriftCI creates Context.dev monitor resources; polling and snapshots run in DriftCI.
+### 0:00–0:15 — two release timelines
 
-> “The source now has memory. When a later retrieval differs, the observation keeps the hashes, line counts and a bounded added/removed diff. No initial-page alert storm, no invisible polling cost.”
+Open Release Room with the PR queue and live event memory visible.
 
-## 2. Prove source-to-code impact (30 seconds)
+> “GitHub tells us what changed in the pull request. Official web pages tell us what changed around it. DriftCI places those timelines beside each other so review evidence has a freshness, a commit and an owner.”
 
-Open **Mission Control** and select the `gpt-4-0314` retirement signal.
+Identify the real public repository and its bounded source coverage. Do not call the workspace production or imply endorsement by its maintainers.
 
-- Show the official OpenAI receipt and live/cached retrieval mode.
-- Open both exact locations: shared support-summary configuration and escalation drafting.
-- Show the migration recommendation and distinguish exact configuration evidence from runtime invocation.
-- Click **Mark reviewed**. The backend records the review and updates the queue.
+### 0:15–0:40 — evidence at the exact head
 
-> “This is an actual official-page retrieval mapped to real code, not a hardcoded warning. The same observation path handles changed model pricing and installed-package release pages.”
+Open a complete PR inspector. Point to the head SHA, changed files and check runs.
 
-## 3. Work the security incident (30 seconds)
+> “These are actual GitHub metadata and check results, not generated test results. File and patch bounds are explicit. Deleted code is not treated as current configuration, and incomplete evidence cannot be marked ready.”
 
-Open **Vulnerabilities** and the Next.js middleware advisory.
+### 0:40–1:05 — the external source
 
-- Show the OSV/GitHub advisory, affected installed range and fixed version.
-- Explain that middleware presence makes reachability **likely**, not proven exploitable.
-- Advance the ordered response checklist and show the timestamped timeline.
-- Click **Export IR record** to download the Markdown handoff.
-- Open **CVE history** to show that resolved response evidence remains available.
+Open Web Watch and a relevant official-source receipt.
 
-The example intentionally pins an old Next.js release, so live OSV can return many additional real advisories. They are retained rather than suppressed.
+> “Context.dev retrieves the official model, pricing, release-note and status pages relevant to the code. DriftCI keeps their snapshots and diffs locally. The first page is a baseline, never an invented alert. Request pacing, caching and a credit ceiling are visible controls.”
 
-## Close (20 seconds)
+Describe polling accurately as DriftCI-local polling. Do not claim a Context.dev monitor resource, ID, webhook or remote run history.
 
-Return to **Web Watch** and **Change Inbox**.
+### 1:05–1:25 — one owner, one evidence set
 
-> “DriftCI closes the loop from live web evidence to code impact and accountable review: Context.dev scrape and search, persistent observed changes, exact repository locations, and a real CVE response record. Its rates and uncertainty are visible, and the demo never turns an initial baseline into a fake live alert.”
+Return to the inspector and open the decision dialog.
 
-## Reliable recovery
+> “A named reviewer records ready or hold for this exact head, external evidence and check-run state. It is a local DriftCI record, not a GitHub approval or an automatic merge. A stale source or incomplete evidence requires a fresh review before ready.”
 
-- **Refresh web** uses cached responses for six hours; the browser displays live versus cached status.
-- **Repository and demo controls → Restore example workspace** returns to `junction/orders-ai`.
-- **Replay historical incident** explicitly replays the March 2026 shutdown. It is not a new live announcement.
-- A Context.dev/OSV/CISA outage preserves last-known evidence and exposes a source-specific warning.
-- Incidents, source receipts and Markdown export work without GitHub credentials. No repository code is executed.
+A pause may be recorded as a local QA example. Its note should explicitly say that no GitHub review, merge or deployment was performed.
 
-## Validated release
+### 1:25–2:00 — the record and the next change
 
-- **35 backend tests** pass without live network dependencies.
-- Production TypeScript/Vite build passes.
-- Real Chromium checks passed with zero JavaScript errors for Mission Control, review transitions, five-watch Web Watch and research results, change search, CVE checklist/report/history, 120-file source bounds, and 390px responsive layouts.
-- A bounded live refresh completed in **34.4 seconds**: five official scrapes plus one scoped search. The local ledger recorded six queries and seven credits for that refresh. Details are in `EVIDENCE.md`.
+Show the event arrive without a page reload, download the Markdown record, then briefly show Web Watch’s primary sources.
 
-## Questions judges may ask
+> “The exported record preserves the head, evidence fingerprints, CI snapshot, source links, owner and remaining limits. If the head, external facts or checks change later, that decision becomes stale. DriftCI keeps the evidence inspectable rather than generating an unexplained patch or claiming production safety.”
 
-**Is this a Context.dev monitor integration?** It uses the Context.dev Web API for scrape and search. DriftCI implements local polling, baselines, diff observations and budgets. It does not claim remote monitor IDs or webhooks.
+## Demonstrating genuine change
 
-**Why not Dependabot/Renovate?** They react mainly to package versions. DriftCI watches unstructured operational pages, compares their content, maps changes to exact model/dependency evidence, and keeps vulnerability response state.
+Only show a web or GitHub event as live when the corresponding source actually produced it. Existing model lifecycle matches can be historical baselines with `observed_at=null`; they are not proof that the page changed today.
 
-**Does a dependency CVE prove exploitability?** No. The UI distinguishes installed-version matching, exact configuration and heuristic reachability; deployment verification remains necessary.
+- **GitHub activity:** verify the release health timestamp, then inspect the arrived event and its PR/head. Initial imports are baselines.
+- **Official web changes:** use a fresh Context.dev observation with its before/after excerpt and source hashes. Do not turn an unchanged live retrieval into a change alert.
+- **Review freshness:** show the observation time beside the latest retrieved GitHub approval. Do not call an old lifecycle page a newly observed change.
+- **Decision expiry:** use a real head, check-run or external fact change. A mark-reviewed action alone does not invalidate an otherwise current decision.
 
-**How are costs bounded?** Six-hour caches, six scrapes and one search per refresh, 6.2-second pacing, a shared scan lock/cooldown and an 80-credit daily ceiling. The counters shown are local records, not an account-side billing statement.
+The `Release paused locally` audit records created by the browser QA are explicitly identified as QA, not maintainer approvals. They demonstrate a local state transition over real SSE.
+
+## Controlled fixtures versus the public demo
+
+The pytest suite uses changing mocked Context.dev and GitHub responses to test transitions that cannot be scheduled safely on a public provider. Those tests are hermetic. They do not imply that a real external page changed during the public demonstration.
+
+For a controlled writable pull-request workflow, obtain explicit authorization and an appropriately scoped GitHub token. Do not create reviews, merges, deployments or robot-authored approval records merely to make the demo look live. Read-only public polling and the small labelled historical replay are sufficient without those permissions.
+
+## Repository and cost notes
+
+- `vercel/ai`: public selective index, currently 120 files at a pinned main-branch commit. Large monorepo coverage is partial.
+- `junction/orders-ai`: deliberately outdated example, useful for compact OpenAI/Next.js evidence. The historical replay is explicitly labelled.
+- **Repository → demo controls** switches the workspace. `POST /api/demo/reset` clears the current workspace’s release records and signals, so do not run destructive QA against the public Release Room when preparing a recording.
+- Context.dev scrape/search is locally accounted; quota values are not account-side billing reconciliation. Current API health shows usage and remaining local credit capacity.
+- Anonymous GitHub API access can run out during a busy setup. If needed, use a read-only token and keep it outside source. The application keeps retained evidence visible and reports freshness instead of faking an update.
+
+For exact limits and endpoints, see `README.md` and `PRODUCT.md`. For measured results, see `EVIDENCE.md`.

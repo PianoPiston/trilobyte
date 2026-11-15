@@ -83,10 +83,10 @@ class ContextDev:
             "queries": usage["daily_queries"] + 1,
         })
 
-    async def scrape(self, spec: DocumentSpec) -> WebResult:
+    async def scrape(self, spec: DocumentSpec, ttl: int | None = None) -> WebResult:
         if not self.api_key:
             return WebResult(error="CONTEXTDEV_API_KEY is not configured; retained last-known evidence")
-        result = await self.web.request_json("POST", API_URL, f"context:v2:{spec.scrape_url}", self.ttl, payload={
+        result = await self.web.request_json("POST", API_URL, f"context:v2:{spec.scrape_url}", self.ttl if ttl is None else ttl, payload={
             "url": spec.scrape_url,
             "formats": {"markdown": True, "html": False},
             "timeoutOpts": {"milliseconds": 30000, "behavior": "return-partial"},
@@ -239,6 +239,10 @@ OPENAI_PRICING = DocumentSpec(
     "openai-pricing", "OpenAI", "API pricing", "https://developers.openai.com/api/docs/pricing",
     "https://developers.openai.com/api/docs/pricing.md", "pricing",
 )
+OPENAI_STATUS = DocumentSpec(
+    "openai-status", "OpenAI", "Service status", "https://status.openai.com/",
+    "https://status.openai.com/", "status",
+)
 ANTHROPIC_RELEASES = DocumentSpec(
     "anthropic-release-notes", "Anthropic", "API release notes", "https://platform.claude.com/docs/en/release-notes/overview",
     "https://platform.claude.com/docs/en/release-notes/overview.md", "releases",
@@ -268,7 +272,7 @@ def documents_for(files: dict[str, str], custom: list[DocumentSpec] | None = Non
     names = {item["name"] for item in dependencies}
     specs: list[DocumentSpec] = list(custom or [])
     if any(model.startswith(("gpt-", "o1", "o3", "o4", "chatgpt-")) for model in models) or names & {"openai", "@ai-sdk/openai"}:
-        specs.extend([DOCUMENTS[0], OPENAI_PRICING])
+        specs.extend([DOCUMENTS[0], OPENAI_PRICING, OPENAI_STATUS])
     if any(model.startswith("claude-") for model in models) or names & {"anthropic", "@anthropic-ai/sdk"}:
         specs.extend([DOCUMENTS[1], ANTHROPIC_RELEASES])
     priority = ["@ai-sdk/openai", "openai", "next", "fastapi", "django", "express", "react", "undici", "vue", "svelte", "flask"]
@@ -312,6 +316,27 @@ def validate_watch_url(url: str, title: str = "") -> DocumentSpec:
     key = stable_id("custom", url.strip(), length=12)
     clean_title = safe_excerpt(title, 80) or "Custom web watch"
     return DocumentSpec(key, host.replace("www.", ""), clean_title, url.strip(), url.strip(), "custom", custom=True)
+
+
+_STATUS_WORDS = re.compile(r"\b(?:operational|degraded(?:\s+performance)?|partial\s+outage|major\s+outage|under\s+maintenance|investigating|identified|monitoring|resolved|incident)\b", re.I)
+
+
+def status_snapshot(text: str) -> str:
+    """Keep component state and incident context, excluding navigation and page chrome."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    selected: list[str] = []
+    for index, line in enumerate(lines):
+        if not _STATUS_WORDS.search(line):
+            continue
+        for candidate in (lines[index - 1] if index else "", line, lines[index + 1] if index + 1 < len(lines) else ""):
+            if len(candidate) <= 500 and candidate not in selected:
+                selected.append(candidate)
+        if len(selected) >= 81:
+            break
+    if selected:
+        return "\n".join(selected[:81])
+    # An unrecognized page stays reviewable and unchanged parsing is explicitly not a health claim.
+    return "Unrecognized service-state layout; primary-source review required\n" + text[:16_000]
 
 
 def custom_spec(data: dict) -> DocumentSpec:
