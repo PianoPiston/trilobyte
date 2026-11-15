@@ -21,9 +21,12 @@ class Settings:
     example_dir: Path
     watch_interval_seconds: int = 0
     scan_cooldown_seconds: int = 0
-    github_file_limit: int = 600
-    github_byte_limit: int = 12_000_000
-    github_file_byte_limit: int = 2_000_000
+    github_file_limit: int = 64
+    github_byte_limit: int = 2_000_000
+    github_file_byte_limit: int = 1_000_000
+    repository_connect_timeout_seconds: int = 75
+    vulnerability_package_limit: int = 32
+    osv_batch_timeout_seconds: int = 25
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -43,7 +46,10 @@ class Settings:
             example_dir=Path(os.environ.get("DRIFTCI_EXAMPLE_DIR", root / "examples" / "orders-ai")),
             watch_interval_seconds=int(os.environ.get("DRIFTCI_WATCH_INTERVAL_SECONDS", "0")),
             scan_cooldown_seconds=int(os.environ.get("DRIFTCI_SCAN_COOLDOWN_SECONDS", "0")),
-            github_file_limit=int(os.environ.get("DRIFTCI_GITHUB_FILE_LIMIT", "600")),
-            github_byte_limit=int(os.environ.get("DRIFTCI_GITHUB_BYTE_LIMIT", "12000000")),
-            github_file_byte_limit=int(os.environ.get("DRIFTCI_GITHUB_FILE_BYTE_LIMIT", "2000000")),
+            github_file_limit=int(os.environ.get("DRIFTCI_GITHUB_FILE_LIMIT", "64")),
+            github_byte_limit=int(os.environ.get("DRIFTCI_GITHUB_BYTE_LIMIT", "2000000")),
+            github_file_byte_limit=int(os.environ.get("DRIFTCI_GITHUB_FILE_BYTE_LIMIT", "1000000")),
+            repository_connect_timeout_seconds=int(os.environ.get("DRIFTCI_REPOSITORY_CONNECT_TIMEOUT_SECONDS", "75")),
+            vulnerability_package_limit=int(os.environ.get("DRIFTCI_OSV_PACKAGE_LIMIT", "32")),
+            osv_batch_timeout_seconds=int(os.environ.get("DRIFTCI_OSV_BATCH_SECONDS", "25")),
         )

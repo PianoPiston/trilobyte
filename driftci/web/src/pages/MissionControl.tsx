@@ -44,6 +44,7 @@ export function MissionControl({ data, onNavigate, onSelectSignal }: {
     .filter((signal) => signal.state !== 'resolved')
     .sort((a, b) => severityRank[a.severity] - severityRank[b.severity]);
   const maximumUsage = Math.max(1, ...data.dependencies.map((dependency) => dependency.usage_count));
+  const osv = data.sources.find((source) => source.publisher === 'OSV');
 
   return (
     <div className="page overview-page">
@@ -58,6 +59,14 @@ export function MissionControl({ data, onNavigate, onSelectSignal }: {
         <div className="partial-scan-notice">
           <InlineNotice tone="warning" data-testid="partial-scan-notice">
             <div><strong>Bounded scan: {data.workspace.coverage.files_read} of {data.workspace.coverage.candidate_files} relevant files read.</strong><p>Findings are not evidence of absence in unread files. Review Repository coverage before relying on a zero-result summary.</p></div>
+          </InlineNotice>
+        </div>
+      )}
+
+      {!!osv?.packages_pending && (
+        <div className="partial-scan-notice">
+          <InlineNotice tone="warning" data-testid="partial-osv-notice">
+            <div><strong>Vulnerability checks: {osv.packages_checked} / {osv.packages_total} exact packages.</strong><p>{osv.packages_pending} are pending the query budget or timed out. Findings are scoped to checked packages; unqueried packages are not certified safe.</p></div>
           </InlineNotice>
         </div>
       )}

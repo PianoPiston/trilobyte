@@ -12,6 +12,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright-core')
 
 const BASE = (process.env.DRIFTCI_URL || 'http://127.0.0.1:8100').replace(/\/$/, '');
 const OUT = process.env.OUT_DIR || '/tmp/driftci-browser';
+const repository = process.env.DRIFTCI_REPOSITORY || '';
+const keepWorkspace = process.env.DRIFTCI_KEEP_WORKSPACE === '1' && Boolean(repository);
+let repositoryTest = null;
 const executablePath = process.env.CHROMIUM_EXECUTABLE || '~/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome';
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -95,6 +98,8 @@ async function capture(page, name) {
     await page.route('**/api/bootstrap', async (route) => {
       const response = await route.fetch();
       const payload = await response.json();
+      const osv = payload.sources.find((source) => source.publisher === 'OSV');
+      if (osv) Object.assign(osv, { status: 'partial', packages_total: 76, packages_checked: 32, packages_pending: 44 });
       payload.workspace = {
         ...payload.workspace,
         name: 'Large public repository',
@@ -105,22 +110,27 @@ async function capture(page, name) {
           commit_sha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
           complete: false, tree_truncated: true, repository_files: 95000,
           candidate_files: 21, selected_files: 10, files_read: 10,
-          skipped_large_files: 1, skipped_budget_files: 9, failed_files: 1,
-          bytes_read: 82000, file_limit: 600, byte_limit: 12000000,
-          per_file_limit: 2000000, repository_size_kb: 90000,
+          skipped_large_files: 1, skipped_budget_files: 9, failed_files: 1, timed_out_files: 1,
+          bytes_read: 82000, file_limit: 64, byte_limit: 2000000,
+          per_file_limit: 1000000, repository_size_kb: 90000,
+          source_read_seconds: 1.6, time_budget_seconds: 25, per_file_timeout_seconds: 6,
         },
       };
       await route.fulfill({ response, json: payload });
     });
     await page.reload({ waitUntil: 'networkidle' });
     await page.getByTestId('partial-scan-notice').waitFor();
+    await page.getByTestId('partial-osv-notice').waitFor();
+    assert((await page.getByTestId('partial-osv-notice').innerText()).includes('44 are pending'), 'OSV package budget is not disclosed');
     await page.getByRole('button', { name: 'Repository and demo controls' }).click();
     await page.getByTestId('repository-coverage').waitFor();
     const coverageText = await page.getByTestId('repository-coverage').innerText();
     assert(coverageText.includes('10 / 21'), 'Selective repository read counts are absent');
     assert(coverageText.includes('No archive or clone'), 'No-archive reader explanation is absent');
+    assert((await page.locator('#repository-help').innerText()).includes('64 files / 2 MB'), 'Bounded loading-time explanation is absent');
     assert(coverageText.includes('not evidence of absence'), 'Partial-coverage warning is absent');
     assert(coverageText.includes('aaaaaaaaaaaa'), 'Pinned source commit is absent');
+    assert(coverageText.includes('exceeded the time budget'), 'Timeout accounting is not shown');
     await capture(page, 'repository-coverage.png');
     checks.push('Large-repository selective reader coverage and partial-result disclosure');
     await page.getByRole('button', { name: 'Close drawer' }).click();
@@ -133,15 +143,37 @@ async function capture(page, name) {
     await capture(page, 'mobile.png');
     assert(await page.getByRole('button', { name: 'Open navigation' }).isVisible(), 'Mobile navigation control is not available');
     checks.push('390px responsive layout without document overflow');
+
+    if (repository) {
+      await page.setViewportSize({ width: 1440, height: 1050 });
+      await page.getByRole('button', { name: 'Repository and demo controls' }).click();
+      await page.locator('#repository-url').fill(repository);
+      await page.getByRole('button', { name: 'Connect & scan repository' }).click();
+      await page.locator('.repository-progress').waitFor();
+      const started = Date.now();
+      await page.getByRole('button', { name: 'Close drawer' }).waitFor({ state: 'detached', timeout: 90000 });
+      await page.getByTestId('partial-scan-notice').waitFor();
+      const osvNotice = page.getByTestId('partial-osv-notice');
+      if (await osvNotice.count()) assert((await osvNotice.innerText()).includes('pending'), 'OSV scope is not explained for the real repository');
+      await page.getByRole('button', { name: 'Repository and demo controls' }).click();
+      await page.getByTestId('repository-coverage').waitFor();
+      const text = await page.getByTestId('repository-coverage').innerText();
+      assert(text.includes('Partial coverage'), 'Large-repository index should be explicitly partial');
+      assert(text.includes('No archive or clone'), 'Real connection used an unexpected archive path');
+      assert(text.includes('file-read time'), 'Real connection did not report source-read timing');
+      repositoryTest = { url: repository, elapsed_seconds: Math.round((Date.now() - started) / 100) / 10, kept_workspace: keepWorkspace };
+      await capture(page, 'repository-live-connect.png');
+      checks.push(`Real public UI connection to ${repository} completed in ${repositoryTest.elapsed_seconds}s with bounded/partial coverage`);
+    }
   } catch (error) {
     await capture(page, 'failure.png').catch(() => {});
     errors.push(`assertion: ${error.message}`);
   } finally {
-    await fetch(`${BASE}/api/demo/reset`, { method: 'POST' }).catch(() => {});
+    if (!keepWorkspace) await fetch(`${BASE}/api/demo/reset`, { method: 'POST' }).catch(() => {});
     await browser.close();
   }
 
-  const report = { ok: errors.length === 0, base: BASE, checks, errors, artifacts: OUT };
+  const report = { ok: errors.length === 0, base: BASE, checks, repository_test: repositoryTest, errors, artifacts: OUT };
   console.log(JSON.stringify(report, null, 2));
   if (errors.length) process.exitCode = 1;
 })();

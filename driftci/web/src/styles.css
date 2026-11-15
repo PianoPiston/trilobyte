@@ -637,6 +637,7 @@ input:focus-visible, select:focus-visible { outline-offset: 0; }
 .repository-coverage p { margin: 7px 0; color: #435a51; font-size: 11px; line-height: 1.55; }
 .repository-coverage small { display: block; margin-top: 6px; color: var(--muted); font-size: 10px; line-height: 1.55; }
 .repository-coverage .coverage-warning { color: #81571b; }
+.repository-progress { margin-bottom: 12px; background: #eef3fb; border-color: #cbd9eb; }
 .repository-connect > p, .restore-section > p { margin: 0 0 16px; color: var(--muted); font-size: 12px; }
 .repository-connect form > label { display: block; margin-bottom: 7px; color: #41584e; font-size: 11px; font-weight: 600; }
 .repository-input { display: flex; align-items: center; gap: 8px; height: 43px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); }

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import json
+import time
 from urllib.parse import unquote
 
 import httpx
@@ -9,6 +12,7 @@ from fastapi.testclient import TestClient
 from server.app import create_app
 from server.repository import RepositoryError, SourceLimits, parse_github, read_public
 from server.scanner import inventory, middleware_evidence
+from test_live_scan import NEXT_ADVISORY
 
 from conftest import make_settings
 
@@ -23,12 +27,14 @@ def source_files() -> dict[str, str]:
     }
 
 
-def fake_github(contents: dict[str, str] | None = None, *, truncated: bool = False, calls: list[str] | None = None):
+def fake_github(contents: dict[str, str] | None = None, *, truncated: bool = False, calls: list[str] | None = None, slow_paths: set[str] | None = None, extra_handler=None):
     contents = source_files() if contents is None else contents
     calls = [] if calls is None else calls
+    slow_paths = slow_paths or set()
     tree_contents = {
         **contents,
         "README.md": "Documentation is not downloaded for source analysis.",
+        "test/fixtures/package.json": '{"dependencies":{"not-production":"1.0.0"}}',
         "assets/logo.png": "binary",
         "node_modules/next/package.json": '{"version":"99.0.0"}',
     }
@@ -37,7 +43,7 @@ def fake_github(contents: dict[str, str] | None = None, *, truncated: bool = Fal
         value = contents.get(path, "not fetched")
         return {"path": path, "type": "blob", "size": len(value.encode()) if size is None else size, "sha": "b" * 40}
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    async def handler(request: httpx.Request) -> httpx.Response:
         calls.append(str(request.url))
         assert request.url.host != "codeload.github.com", "selective reads must never use repository archives"
         if request.url.host == "api.github.com":
@@ -58,7 +64,13 @@ def fake_github(contents: dict[str, str] | None = None, *, truncated: bool = Fal
             path = unquote(request.url.path[len(prefix):])
             if path not in contents:
                 return httpx.Response(404, text="unknown")
+            if path in slow_paths:
+                await asyncio.sleep(10)
             return httpx.Response(200, content=contents[path].encode())
+        if extra_handler:
+            extra = extra_handler(request)
+            if extra is not None:
+                return extra
         return httpx.Response(400, text="unexpected host")
 
     transport = httpx.MockTransport(handler)
@@ -113,6 +125,22 @@ async def test_remote_fetch_uses_budgets_and_validates_inputs():
             await read_public(http, "https://github.com/acme/large-repo")
 
 
+@pytest.mark.asyncio
+async def test_source_deadline_retains_completed_files_and_reports_pending():
+    files = {**source_files(), "src/slow.ts": "export const slowlyRead = true;"}
+    transport, _calls = fake_github(files, slow_paths={"src/slow.ts"})
+    limits = SourceLimits(max_files=64, max_bytes=100_000, max_file_bytes=20_000, max_seconds=5, per_file_timeout=30)
+    started = asyncio.get_running_loop().time()
+    async with httpx.AsyncClient(transport=transport) as http:
+        workspace, read = await read_public(http, "https://github.com/acme/large-repo", limits=limits)
+    elapsed = asyncio.get_running_loop().time() - started
+    assert len(read) == 3 and "src/slow.ts" not in read
+    assert workspace["coverage"]["timed_out_files"] == 1
+    assert workspace["coverage"]["failed_files"] == 1
+    assert workspace["coverage"]["complete"] is False
+    assert 4.5 <= elapsed < 8
+
+
 def test_connect_endpoint_persists_selective_workspace_and_inventory(tmp_path):
     transport, calls = fake_github()
     with TestClient(create_app(make_settings(tmp_path, offline=True), transport=transport)) as client:
@@ -126,6 +154,52 @@ def test_connect_endpoint_persists_selective_workspace_and_inventory(tmp_path):
         assert payload["summary"]["production_models"] == 1
         assert any("no archive" in row["detail"] for row in payload["activity"] if row["type"] == "repository")
     assert not any("codeload" in call for call in calls)
+
+
+def test_fresh_repository_first_advisory_does_not_dereference_missing_record(tmp_path):
+    def live_sources(request: httpx.Request):
+        if request.url.host == "api.osv.dev":
+            package = json.loads(request.content)["package"]["name"]
+            return httpx.Response(200, json={"vulns": [NEXT_ADVISORY] if package == "next" else []})
+        if request.url.host == "www.cisa.gov":
+            return httpx.Response(200, json={"vulnerabilities": []})
+        return None
+
+    transport, _calls = fake_github(extra_handler=live_sources)
+    with TestClient(create_app(make_settings(tmp_path, offline=False), transport=transport)) as client:
+        response = client.post("/api/repositories/connect", json={"url": "https://github.com/acme/large-repo"})
+        assert response.status_code == 200, response.text
+        assert any(row["id"] == "sig-CVE-2025-29927" for row in response.json()["signals"])
+
+
+def test_inventory_uses_shared_usage_index(monkeypatch):
+    import server.scanner as scanner_module
+
+    def unexpected_rescan(*_args):
+        raise AssertionError("inventory must not rescan all files once per package")
+
+    monkeypatch.setattr(scanner_module, "package_usage", unexpected_rescan)
+    rows = inventory({
+        "package.json": '{"dependencies":{"react":"18.3.1","lodash":"4.17.21"}}',
+        "src/app.ts": 'import "react"; const merge = require("lodash/merge");',
+    })
+    assert {row["name"]: row["usage_count"] for row in rows} == {"lodash": 1, "react": 1}
+
+
+def test_outer_connect_timeout_returns_actionable_504(tmp_path):
+    async def stalled(_request: httpx.Request):
+        await asyncio.sleep(10)
+        return httpx.Response(200, json={})
+
+    settings = make_settings(tmp_path, repository_connect_timeout_seconds=1, request_timeout=30)
+    with TestClient(create_app(settings, transport=httpx.MockTransport(stalled))) as client:
+        started = time.monotonic()
+        response = client.post("/api/repositories/connect", json={"url": "https://github.com/acme/large-repo"})
+        elapsed = time.monotonic() - started
+        assert response.status_code == 504
+        assert "time budget" in response.json()["detail"]
+        assert elapsed < 5
+        assert client.get("/api/bootstrap").json()["workspace"]["source"] == "demo"
 
 
 def test_nested_manifests_keep_distribution_and_lock_scope():

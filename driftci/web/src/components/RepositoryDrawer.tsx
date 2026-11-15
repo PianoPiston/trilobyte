@@ -94,8 +94,9 @@ export function RepositoryDrawer({ data, health, busy, onClose, onConnect, onRep
         {coverage && (
           <div className={`repository-coverage ${coverage.complete ? '' : 'is-partial'}`} data-testid="repository-coverage">
             <div className="coverage-heading"><strong>Selective source index</strong><span>{coverage.complete ? 'Full eligible-file coverage' : 'Partial coverage'}</span></div>
-            <p><b>{coverage.files_read} / {coverage.candidate_files}</b> relevant manifests and source/config files · {formatBytes(coverage.bytes_read)} read · commit <code>{coverage.commit_sha.slice(0, 12)}</code>.</p>
+            <p><b>{coverage.files_read} / {coverage.candidate_files}</b> relevant manifests and source/config files · {formatBytes(coverage.bytes_read)} read · commit <code>{coverage.commit_sha.slice(0, 12)}</code>{coverage.source_read_seconds !== undefined && <> · {coverage.source_read_seconds.toFixed(1)}s file-read time</>}.</p>
             <small>No archive or clone. Tree metadata listed {coverage.repository_files} files{coverage.tree_truncated ? ' (truncated by GitHub)' : ''}; dependencies/media/builds/vendor directories are filtered before file reads.</small>
+            {(coverage.timed_out_files ?? 0) > 0 && <small className="coverage-warning">{coverage.timed_out_files} source read(s) exceeded the time budget. Check the server limits or retry later; they were not treated as safe or absent.</small>}
             {!coverage.complete && <small className="coverage-warning">{coverage.skipped_large_files + coverage.skipped_budget_files + coverage.failed_files} candidate file(s) were not read. Partial results are not evidence of absence; increase the server-side source budget for a wider index.</small>}
           </div>
         )}
@@ -118,8 +119,9 @@ export function RepositoryDrawer({ data, health, busy, onClose, onConnect, onRep
               aria-describedby="repository-help"
             />
           </div>
-          <small id="repository-help">Public GitHub repositories over HTTPS, including repositories over 25 MB. Source reads are bounded and coverage is reported.</small>
+          <small id="repository-help">Public GitHub repositories over HTTPS, including nodejs/node. Defaults: 64 files / 2 MB, up to 25 seconds of source reading; coverage is reported.</small>
           {error && <InlineNotice tone="error" role="alert">{error}</InlineNotice>}
+          {busy === 'connect' && <InlineNotice className="repository-progress" role="status"><div><strong>Indexing a bounded source subset…</strong><p>Manifests are read first, then intelligence runs. Large repositories normally finish in seconds; slow files expire and are reported, never silently skipped.</p></div></InlineNotice>}
           <Button type="submit" variant="primary" icon={ArrowUpRight} loading={busy === 'connect'}>Connect & scan repository</Button>
         </form>
       </section>

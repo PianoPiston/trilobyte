@@ -16,6 +16,10 @@ export interface RepositoryCoverage {
   skipped_large_files: number;
   skipped_budget_files: number;
   failed_files: number;
+  timed_out_files: number;
+  source_read_seconds?: number;
+  time_budget_seconds?: number;
+  per_file_timeout_seconds?: number;
   bytes_read: number;
   file_limit: number;
   byte_limit: number;
@@ -109,6 +113,10 @@ export interface WatchedSource {
   status: string;
   last_checked_at: string;
   event_count: number;
+  error?: string | null;
+  packages_total?: number;
+  packages_checked?: number;
+  packages_pending?: number;
 }
 
 export interface IncidentAction {

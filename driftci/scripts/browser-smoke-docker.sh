@@ -17,6 +17,8 @@ fi
 exec docker run --rm --user root \
   -e PLAYWRIGHT_MODULE=/out/node_modules/playwright-core \
   -e DRIFTCI_URL="$BASE" \
+  -e DRIFTCI_REPOSITORY="${DRIFTCI_REPOSITORY:-}" \
+  -e DRIFTCI_KEEP_WORKSPACE="${DRIFTCI_KEEP_WORKSPACE:-}" \
   -e OUT_DIR=/out/public \
   -e CHROMIUM_EXECUTABLE=/ms-playwright/chromium-1255/chrome-linux64/chrome \
   -v "$ROOT:/driftci:ro" \

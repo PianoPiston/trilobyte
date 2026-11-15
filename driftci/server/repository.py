@@ -24,22 +24,27 @@ class RepositoryError(ValueError):
 class SourceLimits:
     """Limits on selected text reads, deliberately not a total repository limit."""
 
-    max_files: int = 600
-    max_bytes: int = 12_000_000
-    max_file_bytes: int = 2_000_000
-    concurrency: int = 6
+    max_files: int = 64
+    max_bytes: int = 2_000_000
+    max_file_bytes: int = 1_000_000
+    concurrency: int = 8
+    max_seconds: int = 25
+    per_file_timeout: int = 6
 
     def __post_init__(self) -> None:
         if not 1 <= self.max_files <= 2000 or not 100_000 <= self.max_bytes <= 40_000_000:
             raise ValueError("Invalid GitHub source-reading limits")
         if not 10_000 <= self.max_file_bytes <= 10_000_000 or not 1 <= self.concurrency <= 8:
             raise ValueError("Invalid GitHub file/concurrency limits")
+        if not 5 <= self.max_seconds <= 120 or not 1 <= self.per_file_timeout <= 30:
+            raise ValueError("Invalid GitHub source-reading deadlines")
 
 
 IGNORED_DIRECTORIES = {
     ".git", ".next", ".svn", ".hg", "__pycache__", "node_modules", "bower_components",
     "dist", "build", "coverage", "target", "vendor", "venv", ".venv", ".tox",
     ".gradle", ".terraform", ".idea", ".vscode", ".cache",
+    "test", "tests", "fixtures", "testdata", "test_data", "__mocks__", "docs", "documentation",
 }
 SAFE_SHA = re.compile(r"^[0-9a-fA-F]{40,64}$")
 SAFE_BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,254}")
@@ -181,12 +186,14 @@ async def read_public(
 
     semaphore = asyncio.Semaphore(limits.concurrency)
     errors: list[str] = []
+    read_started = asyncio.get_running_loop().time()
 
     async def fetch(path: str) -> tuple[str, str, int] | None:
         raw_url = f"https://raw.githubusercontent.com/{quote(owner, safe='')}/{quote(repo, safe='')}/{commit}/{quote(path, safe='/')}"
         try:
             body = bytearray()
-            async with semaphore:
+            async with semaphore, asyncio.timeout(limits.per_file_timeout):
+                # Per-file network IO is bounded independently of the shared deadline.
                 # Never forward GitHub credentials to a second hostname.
                 async with http.stream("GET", raw_url, headers={"Accept": "text/plain"}) as response:
                     if response.status_code >= 400:
@@ -202,12 +209,22 @@ async def read_public(
             if len(body) > budget:
                 raise RepositoryError("raw source exceeds the selected-file byte budget")
             return path, text, len(body)
-        except (httpx.HTTPError, UnicodeError, RepositoryError) as exc:
+        except (httpx.HTTPError, UnicodeError, RepositoryError, TimeoutError) as exc:
             errors.append(f"{path}: {type(exc).__name__}")
             return None
 
-    fetched = await asyncio.gather(*(fetch(path) for path, _size in selected))
-    rows = [row for row in fetched if row is not None]
+    tasks = [asyncio.create_task(fetch(path)) for path, _size in selected]
+    try:
+        done, pending = await asyncio.wait(tasks, timeout=limits.max_seconds)
+    finally:
+        # wait() does not cancel children if the HTTP request itself is cancelled.
+        unfinished = [task for task in tasks if not task.done()]
+        for task in unfinished:
+            task.cancel()
+        if unfinished:
+            await asyncio.gather(*unfinished, return_exceptions=True)
+    timed_out_files = len(pending)
+    rows = [task.result() for task in done if task.result() is not None]
     bytes_read = sum(row[2] for row in rows)
     if bytes_read > limits.max_bytes:
         # GitHub's own metadata should make this unreachable; still fail closed if
@@ -220,7 +237,7 @@ async def read_public(
             detail += " from GitHub raw content"
         raise RepositoryError(detail)
 
-    failed_files = len(errors) + ignored_metadata_paths
+    failed_files = len(errors) + ignored_metadata_paths + timed_out_files
     complete = not bool(tree.get("truncated")) and not skipped_large and not skipped_budget and not failed_files and len(files) == len(candidates)
     coverage = {
         "mode": "github_tree_selective",
@@ -235,6 +252,10 @@ async def read_public(
         "skipped_large_files": skipped_large,
         "skipped_budget_files": skipped_budget,
         "failed_files": failed_files,
+        "timed_out_files": timed_out_files,
+        "source_read_seconds": round(asyncio.get_running_loop().time() - read_started, 3),
+        "time_budget_seconds": limits.max_seconds,
+        "per_file_timeout_seconds": limits.per_file_timeout,
         "bytes_read": bytes_read,
         "file_limit": limits.max_files,
         "byte_limit": limits.max_bytes,

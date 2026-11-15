@@ -98,7 +98,11 @@ The selective reader:
 4. Reads only selected UTF-8 files from `raw.githubusercontent.com`, pinned to that same commit. Nested `package.json`/`package-lock.json`, `pyproject.toml` and requirements files retain separate manifest scopes.
 5. Shows files read, bytes read, skipped files and complete/partial coverage. A partial scan never claims that missing findings prove absence.
 
-Default source-reading bounds are **600 selected files / 12 MB total / 2 MB per file**, independent of total repository size. Adjust them server-side with `DRIFTCI_GITHUB_FILE_LIMIT`, `DRIFTCI_GITHUB_BYTE_LIMIT` and `DRIFTCI_GITHUB_FILE_BYTE_LIMIT`. If a GitHub tree is truncated or the budget is reached, the UI shows a partial-coverage warning.
+Default source-reading bounds are **64 selected files / 2 MB total / 1 MB per file / 25 seconds**, independent of total repository size. Per-file reads expire after 6 seconds; selected files completed before the deadline are retained. Test fixtures and documentation directories are excluded from production indexing. `nodejs/node` is a supported large-repository stress case, but npm/PyPI manifests—not every C/C++ runtime component—are inventoried.
+
+Adjust file/byte bounds server-side with `DRIFTCI_GITHUB_FILE_LIMIT`, `DRIFTCI_GITHUB_BYTE_LIMIT` and `DRIFTCI_GITHUB_FILE_BYTE_LIMIT`. The entire connection has a 75-second timeout (`DRIFTCI_REPOSITORY_CONNECT_TIMEOUT_SECONDS`) so the browser cannot spin indefinitely. OSV uses four bounded concurrent workers, at most 32 exact packages per scan (`DRIFTCI_OSV_PACKAGE_LIMIT`, zero disables the cap for a controlled private deployment) and a 25-second batch deadline (`DRIFTCI_OSV_BATCH_SECONDS`). Package-query timeouts and pending packages are shown as partial vulnerability coverage, never as proof of safety.
+
+If a GitHub tree is truncated or the budget is reached, the UI shows a partial-coverage warning. Dependency usage and model evidence are indexed once per source set rather than rescanned per package or lifecycle event, so large-tree bootstrap requests do not block the API event loop.
 
 The scanner never executes repository code or package lifecycle scripts. GitHub credentials, when configured, go only to `api.github.com` for repository metadata/rate limits and PR operations—never to the raw host. Source contents are not sent to Context.dev; OSV receives only inventoried package/version queries.
 
@@ -179,7 +183,9 @@ Run real Chromium QA (desktop, model evidence/diff/export, CVE response/report, 
 DRIFTCI_URL=http://10.0.2.2:8100 ./scripts/browser-smoke-docker.sh
 ```
 
-Use `DRIFTCI_URL=https://driftci.ajc.contexio.fi` to test the deployed route. Screenshots and exported artifacts are written to `/tmp/driftci-browser/public` by default; the browser test resets the shared demo before and after running.
+Use `DRIFTCI_URL=https://driftci.ajc.contexio.fi` to test the deployed route. Screenshots and exported artifacts are written to `/tmp/driftci-browser/public` by default; by default the browser test resets the shared demo before and after running.
+
+To repeat the real large-repository browser check, add `DRIFTCI_REPOSITORY=https://github.com/nodejs/node`. Add `DRIFTCI_KEEP_WORKSPACE=1` to retain that repository for inspection rather than restore the demo (currently retained on the public deployment).
 
 ## Docker
 

@@ -173,20 +173,42 @@ def _python_inventory(files: Mapping[str, str]) -> list[Dependency]:
     return list(records.values())
 
 
-def package_usage(files: Mapping[str, str], name: str, ecosystem: str) -> int:
-    count = 0
+def usage_index(files: Mapping[str, str], packages: set[tuple[str, str]]) -> dict[tuple[str, str], int]:
+    """Extract configured imports in one source pass, not one pass per dependency."""
+    npm_names = {name for ecosystem, name in packages if ecosystem == "npm"}
+    python_names = {name for ecosystem, name in packages if ecosystem == "PyPI"}
+    result: dict[tuple[str, str], int] = {}
+    npm_import = re.compile(r"(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\brequire(?:\.resolve)?\s*\(\s*)['\"]([^'\"]+)['\"]")
+    python_import = re.compile(r"^\s*(?:from|import)\s+([A-Za-z_][\w.]*)")
     for path, content in files.items():
         if PurePosixPath(path).name in MANIFEST_NAMES or PurePosixPath(path).suffix not in CONFIG_SUFFIXES:
             continue
-        if ecosystem == "npm":
-            patterns = [rf"(?:from\s*|import\s*\(\s*|require\s*\(\s*)['\"]{re.escape(name)}(?:/|['\"])", rf"['\"]{re.escape(name)}/"]
-        else:
-            module = name.replace("-", "_")
-            patterns = [rf"(?:^|\n)\s*(?:from|import)\s+{re.escape(module)}(?:\.|\s|$)"]
-        executable_text = "\n".join(line for line in content.splitlines() if not comment_only(line))
-        if any(re.search(pattern, executable_text) for pattern in patterns):
-            count += 1
-    return count
+        npm_referenced: set[str] = set()
+        python_referenced: set[str] = set()
+        for line in content.splitlines():
+            if comment_only(line):
+                continue
+            for module in npm_import.findall(line):
+                for name in npm_names:
+                    if module == name or module.startswith(name + "/"):
+                        npm_referenced.add(name)
+            match = python_import.match(line)
+            if match:
+                module = match.group(1)
+                for name in python_names:
+                    target = name.replace("-", "_")
+                    if module == target or module.startswith(target + "."):
+                        python_referenced.add(name)
+        for name in npm_referenced:
+            result[("npm", name)] = result.get(("npm", name), 0) + 1
+        for name in python_referenced:
+            result[("PyPI", name)] = result.get(("PyPI", name), 0) + 1
+    return result
+
+
+def package_usage(files: Mapping[str, str], name: str, ecosystem: str) -> int:
+    """Compatibility helper for single-package callers; inventory uses one shared pass."""
+    return usage_index(files, {(ecosystem, name)}).get((ecosystem, name), 0)
 
 
 def middleware_evidence(files: Mapping[str, str]) -> list[dict]:
@@ -213,13 +235,14 @@ def dependency_evidence(files: Mapping[str, str], dependency: Dependency) -> lis
 
 def inventory(files: Mapping[str, str], issues: Mapping[tuple[str, str], int] | None = None) -> list[dict]:
     dependencies = {(item.ecosystem, item.name, item.manifest): item for item in _npm_inventory(files) + _python_inventory(files)}
+    usages = usage_index(files, {(ecosystem, name) for ecosystem, name, _manifest in dependencies})
     issues = issues or {}
     result = []
     for (ecosystem, name, _manifest), item in sorted(dependencies.items(), key=lambda pair: (pair[0][1], pair[0][0], pair[0][2])):
         count = issues.get((ecosystem, name), 0)
         data = asdict(item)
         data.update({
-            "usage_count": package_usage(files, name, ecosystem),
+            "usage_count": usages.get((ecosystem, name), 0),
             "issues": count,
             "health": "critical" if count else "healthy" if item.exact else "unresolved",
         })

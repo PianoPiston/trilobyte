@@ -207,9 +207,14 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     @app.post("/api/repositories/connect")
     async def connect(body: RepositoryRequest, request: Request):
         try:
-            return await gated_scan(lambda: service(request).connect(body.url))
+            return await gated_scan(lambda: asyncio.wait_for(
+                service(request).connect(body.url),
+                timeout=config.repository_connect_timeout_seconds,
+            ))
         except RepositoryError as exc:
             raise HTTPException(400, str(exc)) from exc
+        except TimeoutError as exc:
+            raise HTTPException(504, "Repository connection exceeded its time budget. No complete scan was reported; retry with supported manifests or adjust the server source budgets.") from exc
 
     @app.delete("/api/workspace")
     def workspace(request: Request):

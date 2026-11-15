@@ -154,7 +154,7 @@ Body `{"signal_id":"sig-model-gpt4-0314"}`. Generates and stores a deterministic
 ### `POST /api/repositories/connect`
 Body `{"url":"https://github.com/owner/repo"}`. Public repository selective source reading. No arbitrary local paths, archive/clone or command execution. Repository size does not impose a 25 MB archive limit. The backend resolves a commit, reads its recursive Git tree, prioritizes manifests and fetches only selected source/config text from the raw host at the same commit.
 
-Returns bootstrap with `workspace.coverage`: complete/partial status, commit, candidate/read/file counts, bytes, tree-truncation and skipped/error counts. Nested manifests retain distinct dependency scopes. Default bounds are 600 selected files, 12 MB total and 2 MB per file, configurable with `DRIFTCI_GITHUB_*` settings. Partial coverage is visibly disclosed and must not be treated as evidence of absence.
+Returns bootstrap with `workspace.coverage`: complete/partial status, commit, candidate/read/file counts, bytes, tree-truncation, skipped/error/timeouts and source-read time. Nested manifests retain distinct dependency scopes. Defaults are 64 selected files, 2 MB total, 1 MB per file, 25 seconds for the raw batch and 6 seconds per file; the whole connection has a 75-second timeout. These bounds avoid an indefinitely loading UI. OSV has a 32-package/25-second bounded concurrent batch, with `packages_checked`, `packages_total` and `packages_pending` on its source health. Partial source or vulnerability coverage is visibly disclosed and must not be treated as evidence of absence or safety.
 
 ### `DELETE /api/workspace`
 Restore the built-in demo.

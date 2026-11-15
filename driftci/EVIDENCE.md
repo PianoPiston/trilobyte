@@ -33,4 +33,12 @@ A real read-only probe of `microsoft/vscode` on 2026-11-15 resolved commit `776b
 
 The browser suite includes the repository coverage view and partial-scan warning. Backend fixtures verify a mocked 90 MB repository, nested dependency manifests, absent Codeload calls, raw-host credential isolation, immutable commit requests and budget/partial accounting. Raw content is also streamed with a chunk-level per-file guard.
 
+## Node-sized repository and blocking-request fix
+
+After live Node-sized testing exposed an empty-scope bug and repeated source/indexing work, repository connections were changed to **64 files / 2 MB / 25 seconds of source reads**, with per-file and whole-connect deadlines. Test fixtures/documentation are excluded. Model evidence and import usage are each indexed once per source set; OSV performs bounded concurrent lookups (32 packages / 25 seconds by default) and exposes pending/package-budget coverage.
+
+A temporary isolated `nodejs/node` connection at commit `e18f10645c3c02814ca04a9d798dd15c2f21ef6c` completed offline repository indexing in **5.19 seconds** (64/64 selected files read, 0 raw failures) and returned a second bootstrap in **0.104 seconds**. A separate live OSV/CISA connection completed in **9.92 seconds** without Context.dev in that probe: 189 scoped dependency records, 76 exact packages, **32 packages checked / 44 explicitly pending**, 10 findings, and a **0.114-second** follow-up bootstrap. These are partial scoped results, not a certification of every Node component. The deployed product's separately validated Context.dev retrieval was intentionally disabled in this probe to isolate repository and OSV/CISA behavior.
+
+The complete **public Chromium + API flow** then connected `https://github.com/nodejs/node` successfully in **4.6 seconds** using the deployed live-configured/cached sources, with zero browser errors: 64/64 selected files, 1,916,532 bytes, 0 raw errors, 10 findings, and 32/76 packages checked (44 explicitly pending). It remained connected for the user to inspect rather than being reset to the fixture. This is the final production-route validation after the first live 9.92-second uncached probe.
+
 Reachability in the example is inferred only from relevant code patterns, with comment-only keyword occurrences ignored. It is not represented as exploit proof.

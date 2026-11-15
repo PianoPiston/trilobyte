@@ -59,7 +59,9 @@ class DriftService:
         sources = self.db.list_sources()
         counts = {
             "live": sum(source.get("status") == "live" for source in sources),
-            "cached": sum(source.get("status") not in {"live", "replay"} for source in sources),
+            "cached": sum(source.get("status") not in {"live", "replay", "partial", "error", "unconfigured"} for source in sources),
+            "partial": sum(source.get("status") == "partial" for source in sources),
+            "errors": sum(source.get("status") in {"error", "unconfigured"} for source in sources),
             "replay": sum(source.get("status") == "replay" for source in sources),
         }
         return {
@@ -294,14 +296,17 @@ class DriftService:
             self.db.add_activity("scan", "Offline inventory refreshed", f"{len(files)} files · {len(dependencies)} exact dependency versions; network sources were not queried")
         else:
             document_results, vulnerability_count = await asyncio.gather(self._scan_documents(files), self._scan_vulnerabilities(files, dependencies))
-            errors = sum(source.get("status") in {"error", "unconfigured"} for source in self.db.list_sources())
+            warnings = sum(bool(source.get("error")) or source.get("status") in {"error", "unconfigured", "partial"} for source in self.db.list_sources())
             decisions = sum(signal["state"] in ACTIVE_STATES for signal in self.db.list_signals())
-            self.db.add_activity("scan", "Source refresh completed", f"{document_results} model signals · {vulnerability_count} package-advisory matches · {decisions} decisions required · {errors} source warnings")
+            self.db.add_activity("scan", "Source refresh completed", f"{document_results} model signals · {vulnerability_count} package-advisory matches · {decisions} decisions required · {warnings} source warnings")
         self.db.set_meta("last_scan_at", utcnow())
         return self.bootstrap()
 
     async def _scan_documents(self, files: dict[str, str]) -> int:
         matched = 0
+        locations_by_model: dict[str, list[dict]] = {}
+        for item in model_evidence(files):  # Parse the selected source tree once, not once per lifecycle event.
+            locations_by_model.setdefault(item["model"].lower(), []).append({key: value for key, value in item.items() if key != "model"})
         for spec in DOCUMENTS:
             result = await self.context.scrape(spec)
             if result.error:
@@ -313,7 +318,7 @@ class DriftService:
             events = parse_deprecations(result.data, spec.provider)
             event_count = 0
             for event in events:
-                evidence = [{key: value for key, value in item.items() if key != "model"} for item in model_evidence(files, event["model"])]
+                evidence = [dict(item) for item in locations_by_model.get(event["model"].lower(), [])]
                 if not evidence:
                     continue
                 event_count += 1
@@ -349,7 +354,28 @@ class DriftService:
     async def _scan_vulnerabilities(self, files: dict[str, str], dependencies: list[Dependency]) -> int:
         if not dependencies:
             return 0
-        results = [await self.intel.query_package(dependency) for dependency in dependencies]
+        dependency_priority = {"framework": 0, "ai_sdk": 1, "ui": 2}
+        ordered = sorted(dependencies, key=lambda item: (item.manifest.count("/") > 0, dependency_priority.get(item.kind, 3), item.manifest, item.name))
+        limit = self.settings.vulnerability_package_limit
+        packages = ordered[:limit] if limit > 0 else ordered
+        packages_pending = max(0, len(ordered) - len(packages))
+        semaphore = asyncio.Semaphore(4)
+
+        async def query_package(dependency: Dependency):
+            async with semaphore:
+                return await self.intel.query_package(dependency)
+
+        tasks = [asyncio.create_task(query_package(dependency)) for dependency in packages]
+        try:
+            done, pending = await asyncio.wait(tasks, timeout=self.settings.osv_batch_timeout_seconds)
+        finally:
+            unfinished = [task for task in tasks if not task.done()]
+            for task in unfinished:
+                task.cancel()
+            if unfinished:
+                await asyncio.gather(*unfinished, return_exceptions=True)
+        package_timeouts = len(pending)
+        results = [task.result() for task in sorted(done, key=tasks.index)]
         kev_result = await self.intel.kev()
         known_exploited = kev_entries(kev_result)
         matches = 0
@@ -364,7 +390,7 @@ class DriftService:
             for advisory in package_result.advisories:
                 cve = cve_id(advisory) or advisory["id"]
                 base_id = f"sig-{cve}"
-                existing = self.db.get_signal(base_id)
+                existing = self.db.get_signal(base_id) or {}
                 same_scope = (
                     existing.get("affected_package") == dependency.name
                     and existing.get("ecosystem") == dependency.ecosystem
@@ -417,7 +443,13 @@ class DriftService:
                 matches += 1
         source = self.db.get_source("src-osv") or {"id": "src-osv", "publisher": "OSV", "title": "Open vulnerability intelligence", "url": "https://osv.dev"}
         any_live = any(result.result.mode == "live" and not result.result.error for result in results)
-        source.update({"status": "error" if errors else "live" if any_live else "cached", "last_checked_at": max((item for item in live_retrievals if item), default=source.get("last_checked_at")), "event_count": matches, "mode": "live" if any_live else source.get("mode", "cached"), "error": safe_excerpt("; ".join(errors), 300) if errors else None})
+        scope_warnings = []
+        if packages_pending:
+            scope_warnings.append(f"{packages_pending} additional inventoried packages were not queried within the package limit")
+        if package_timeouts:
+            scope_warnings.append(f"{package_timeouts} package queries timed out; absent advisories are not evidence of safety")
+        status = "error" if errors else "partial" if packages_pending or package_timeouts else "live" if any_live else "cached"
+        source.update({"status": status, "last_checked_at": max((item for item in live_retrievals if item), default=source.get("last_checked_at")), "event_count": matches, "mode": "live" if any_live else source.get("mode", "cached"), "error": safe_excerpt("; ".join(errors + scope_warnings), 360) if errors or scope_warnings else None, "packages_total": len(ordered), "packages_checked": len(results), "packages_pending": packages_pending + package_timeouts})
         self.db.save_source(source)
         cisa = self.db.get_source("src-cisa") or {"id": "src-cisa", "publisher": "CISA", "title": "Known Exploited Vulnerabilities", "url": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog"}
         cisa.update({"status": "error" if kev_result.error else kev_result.mode, "last_checked_at": kev_result.retrieved_at or cisa.get("last_checked_at"), "event_count": sum(cve_id(advisory) in known_exploited for result in results for advisory in result.advisories), "mode": kev_result.mode if not kev_result.error else cisa.get("mode", "cached"), "error": safe_excerpt(kev_result.error, 240) if kev_result.error else None})
