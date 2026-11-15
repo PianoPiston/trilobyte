@@ -27,7 +27,11 @@ curl -s -X POST ${origin}/api/ask -H 'Content-Type: application/json' \\
        "question":"How many apartments are on this floor?"}'
 
 curl -s -F file=@plan.pdf ${origin}/api/upload
-curl -s '${origin}/api/search?q=3%20bedrooms%20and%20a%20sauna'`}</pre>
+curl -s '${origin}/api/search?q=3%20bedrooms%20and%20a%20sauna'
+
+# rooms, areas, perimeters and scale of a drawing; live material unit prices
+curl -s '${origin}/x/takeoff/swiss_dwellings~site3634_bldg5596_floor24203'
+curl -s '${origin}/x/prices'`}</pre>
       <p>The OpenAPI reference is at <a href="/docs">/docs</a>.</p>
 
       <h2>MCP server</h2>

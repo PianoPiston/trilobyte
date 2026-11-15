@@ -1,14 +1,28 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { api, boxOf, fmtValue, unionBox } from "../api";
+import { api, boxOf, unionBox } from "../api";
 import type { Answer, Candidate, DrawingFull, Evidence, Word } from "../api";
+import { DEFAULTS, fetchPrices, fetchTakeoff, fmt, materialLines, roomName, totals } from "../lib/takeoff";
+import { materialIntent } from "../lib/intent";
+import type { Intent } from "../lib/intent";
+import type { Prices, Takeoff } from "../lib/takeoff";
 import Viewer from "../components/Viewer";
-import type { ViewerHandle } from "../components/Viewer";
+import type { Measure, Tool, ViewerHandle } from "../components/Viewer";
 import AnswerCard from "../components/AnswerCard";
 import ContextPanel from "../components/ContextPanel";
+import SummaryPanel from "../components/SummaryPanel";
+import MaterialsPanel from "../components/MaterialsPanel";
+import TakeoffAnswer from "../components/TakeoffAnswer";
 
-type Tab = "evidence" | "data" | "context" | "about";
-const LANGS = [["en", "EN"], ["fi", "FI"], ["all", "All"]];
+const Scene3D = lazy(() => import("../components/Scene3D"));
+
+type Tab = "summary" | "materials" | "answer" | "archive" | "source";
+const TOOLS: [Tool, string, string][] = [
+  ["select", "Select", "Pan the plan and click rooms"],
+  ["distance", "Distance", "Click two points to measure a length"],
+  ["area", "Area", "Click the corners of a region, then click the first point or press Enter"],
+  ["calibrate", "Set scale", "Click the two ends of a length you know"],
+];
 
 export default function DrawingView() {
   const { id = "" } = useParams();
@@ -16,28 +30,47 @@ export default function DrawingView() {
   const [d, setD] = useState<DrawingFull | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [q, setQ] = useState(sp.get("q") || "");
-  const [lang, setLang] = useState("en");
   const [busy, setBusy] = useState(false);
   const [ans, setAns] = useState<Answer | null>(null);
+  const [local, setLocal] = useState<Intent | null>(null);
   const [cand, setCand] = useState<Candidate | null>(null);
   const [hover, setHover] = useState<string | null>(null);
   const [sel, setSel] = useState<string | null>(null);
+  const [showRooms, setShowRooms] = useState(true);
   const [showLayer, setShowLayer] = useState(false);
   const [showWords, setShowWords] = useState(false);
   const [words, setWords] = useState<Word[] | null>(null);
-  const [wordsMsg, setWordsMsg] = useState("");
-  const [tab, setTab] = useState<Tab>("evidence");
+  const [tab, setTab] = useState<Tab>("summary");
+  const [takeoff, setTakeoff] = useState<Takeoff | null>(null);
+  const [takeoffErr, setTakeoffErr] = useState(false);
+  const [ownScale, setOwnScale] = useState<number | null>(null);
+  const [calib, setCalib] = useState<{ px: number; metres: string } | null>(null);
+  const [tool, setTool] = useState<Tool>("select");
+  const [measures, setMeasures] = useState<Measure[]>([]);
+  const [mode, setMode] = useState<"2d" | "3d">("2d");
+  const [roomId, setRoomId] = useState<string | null>(null);
+  const [a, setA] = useState(DEFAULTS);
+  const [prices, setPrices] = useState<Prices | null>(null);
   const viewer = useRef<ViewerHandle>(null);
   const tabBody = useRef<HTMLDivElement>(null);
 
   const ask = async (question: string, dd = d) => {
     if (!dd || question.trim().length < 2) return;
-    setQ(question); setBusy(true); setErr(null); setSel(null); setCand(null); setTab("evidence");
-    try {
-      const a = await api.ask(dd.id, question, lang === "all" ? undefined : lang);
-      setAns(a);
+    setQ(question); setErr(null); setSel(null); setCand(null); setTab("answer"); setMode("2d");
+    const intent = takeoff && (ownScale ?? takeoff.scale.m_per_px) ? materialIntent(question, takeoff.rooms) : null;
+    setLocal(intent);
+    if (intent) {
+      setAns(null);
       setSp({ q: question }, { replace: true });
-      viewer.current?.focus(unionBox(a.evidence));
+      viewer.current?.focus(unionBox(intent.rooms ?? takeoff!.rooms));
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await api.ask(dd.id, question);
+      setAns(r);
+      setSp({ q: question }, { replace: true });
+      viewer.current?.focus(unionBox(r.evidence));
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -46,42 +79,72 @@ export default function DrawingView() {
   };
 
   useEffect(() => {
-    setD(null); setAns(null); setErr(null); setSel(null); setCand(null); setWords(null); setShowWords(false); setShowLayer(false); setWordsMsg("");
+    setD(null); setAns(null); setLocal(null); setErr(null); setSel(null); setCand(null); setWords(null); setShowWords(false); setShowLayer(false);
+    setTakeoff(null); setTakeoffErr(false); setRoomId(null); setMeasures([]); setTool("select"); setMode("2d");
+    setOwnScale(Number(localStorage.getItem(`scale:${id}`)) || null);
     api.drawing(id).then((x) => {
       setD(x);
-      setTab(x.track === "historic" ? "context" : "evidence");
+      setTab(x.track === "historic" ? "archive" : "summary");
       const q0 = sp.get("q");
       if (q0) ask(q0, x);
     }).catch((e) => setErr(e.message));
+    fetchTakeoff(id).then(setTakeoff).catch(() => setTakeoffErr(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  useEffect(() => { fetchPrices().then(setPrices).catch(() => {}); }, []);
+  // while the service is fetching live prices, poll until they arrive
+  useEffect(() => {
+    if (!prices?.refreshing) return;
+    const t = window.setTimeout(() => fetchPrices().then(setPrices).catch(() => {}), 5000);
+    return () => window.clearTimeout(t);
+  }, [prices]);
 
   useEffect(() => {
     if (sel) tabBody.current?.querySelector(`[data-ev="${CSS.escape(sel)}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [sel]);
 
+  const m = ownScale ?? takeoff?.scale.m_per_px ?? null;
+  const room = takeoff?.rooms.find((r) => r.id === roomId) ?? null;
+  const x = useMemo(() => (takeoff && m ? totals(takeoff, m, a, room ? [room] : null) : null), [takeoff, m, a, room]);
+  const concrete = useMemo(() => {
+    if (!takeoff || !m || !x) return null;
+    const qty = materialLines(x, takeoff, m, a, !room)[0].qty;
+    return { qty, cost: qty * (prices?.items.find((p) => p.key === "concrete")?.price ?? 0) };
+  }, [takeoff, m, x, a, room, prices]);
+
   if (!d) return <div className="page"><div className={err ? "error" : "loading"}>{err ? `Could not load the drawing: ${err}` : "Loading…"}</div></div>;
 
-  const evidence = (cand || ans)?.evidence || [];
+  const evidence: Evidence[] = local
+    ? (local.rooms ?? takeoff?.rooms ?? []).map((r) => ({ id: r.id, label: `${roomName(r)}${m ? ` · ${fmt(r.area_m2 ?? r.printed_area_m2 ?? r.area_px * m * m)} m²` : ""}`, polygon: r.polygon }))
+    : (cand || ans)?.evidence || [];
   const pickCand = (c: Candidate | null) => {
     setCand(c); setSel(null);
     viewer.current?.focus(unionBox((c || ans)?.evidence || []));
   };
+  const pickRoom = (rid: string | null) => {
+    setRoomId(rid);
+    const r = takeoff?.rooms.find((y) => y.id === rid);
+    if (r && mode === "2d") viewer.current?.focus(boxOf(r));
+    if (rid && tab !== "materials") setTab("summary");
+  };
   const toggleWords = () => {
     setShowWords(!showWords);
-    if (words !== null || wordsMsg) return;
-    setWordsMsg("reading…");
-    api.words(d.id)
-      .then((w) => { setWords(w.words); setWordsMsg(w.available ? `${w.words.length} words, ${w.method === "pdf" ? "PDF text" : "OCR"}` : "none found"); })
-      .catch(() => setWordsMsg("failed"));
+    if (words === null) api.words(d.id).then((w) => setWords(w.words)).catch(() => setWords([]));
   };
-  const byLang = lang === "all" ? d.examples : d.examples.filter((e) => e.lang === lang);
-  const examples = (byLang.length ? byLang : d.examples).slice(0, 4);
+  const applyScale = () => {
+    const metres = Number(calib?.metres.replace(",", "."));
+    if (!calib || !(metres > 0)) return;
+    setOwnScale(metres / calib.px);
+    localStorage.setItem(`scale:${id}`, String(metres / calib.px));
+    setCalib(null); setTool("select");
+  };
+  const resetScale = () => { setOwnScale(null); localStorage.removeItem(`scale:${id}`); };
+  const scaleNote = ownScale ? "set by you from a known length" : takeoff?.scale.method;
+  const unsure = !ownScale && (takeoff?.scale.confidence ?? 0) < 0.6;
   const tabs: [Tab, string, boolean][] = [
-    ["evidence", `Evidence${evidence.length ? ` ${evidence.length}` : ""}`, true],
-    ["data", "Extracted data", !!d.standardized],
-    ["context", "Archive context", !!d.context],
-    ["about", "Source", true],
+    ["summary", "Summary", true], ["materials", "Materials", !!(takeoff && m)], ["answer", "Answer", true],
+    ["archive", "Archive", !!d.context], ["source", "Source", true],
   ];
 
   return (
@@ -91,20 +154,53 @@ export default function DrawingView() {
           <Link to="/" className="back" aria-label="Back to drawings">←</Link>
           <h1 title={d.title}>{d.title}</h1>
           <span className="sheet-meta">{d.source_label} · {d.formats.join(", ")}</span>
+          <div className="seg small mode">
+            <button className={mode === "2d" ? "on" : ""} onClick={() => setMode("2d")}>Plan</button>
+            <button className={mode === "3d" ? "on" : ""} disabled={!takeoff || !m} onClick={() => setMode("3d")}
+              title={takeoff && m ? "3D model built from this drawing" : "The 3D model needs rooms and a scale"}>3D model</button>
+          </div>
         </div>
-        <Viewer ref={viewer} src={d.image_url} size={d.image_size} evidence={evidence}
-          layer={showLayer ? d.std_layer : null} words={showWords ? words : null}
-          hoverId={hover} selectedId={sel} onHover={setHover}
-          onSelect={(s) => { setSel(s); if (s) setTab("evidence"); }}>
-          {d.std_layer && d.std_layer.length > 0 && (
-            <button className={showLayer ? "on" : ""} aria-pressed={showLayer} onClick={() => setShowLayer(!showLayer)}
-              title="Outline every room, door, window and element extracted from this drawing">Extracted elements <span>{d.std_layer.length}</span></button>
-          )}
-          {d.track === "modern" && (
-            <button className={showWords ? "on" : ""} aria-pressed={showWords} onClick={toggleWords}
-              title="Printed text read from the drawing: PDF vector text, or OCR for scans">Printed text{wordsMsg && <span>{wordsMsg}</span>}</button>
-          )}
-        </Viewer>
+
+        {mode === "3d" && takeoff && m ? (
+          <Suspense fallback={<div className="viewer"><div className="viewer-loading">Building the 3D model…</div></div>}>
+            <Scene3D takeoff={takeoff} mPerPx={m} imageUrl={d.image_url} wallHeight={a.wallHeight} roomId={roomId} onRoom={pickRoom} />
+          </Suspense>
+        ) : (
+          <Viewer ref={viewer} src={d.image_url} size={d.image_size} evidence={evidence}
+            layer={showLayer ? d.std_layer : null} words={showWords ? words : null}
+            rooms={showRooms ? takeoff?.rooms ?? null : null} mPerPx={m} roomId={roomId} onRoom={pickRoom}
+            tool={tool} measures={measures} onMeasure={(ms) => setMeasures([...measures, ms])}
+            onCalibrate={(px) => setCalib({ px, metres: "" })}
+            hoverId={hover} selectedId={sel} onHover={setHover}
+            onSelect={(s) => { setSel(s); if (s) setTab("answer"); }}>
+            <div className="toolbar">
+              {TOOLS.map(([k, label, hint]) => <button key={k} className={tool === k ? "on" : ""} title={hint} onClick={() => setTool(k)}>{label}</button>)}
+              {measures.length > 0 && <button onClick={() => setMeasures([])}>Clear</button>}
+            </div>
+            <div className="layers">
+              {takeoff && takeoff.rooms.length > 0 && <button className={showRooms ? "on" : ""} aria-pressed={showRooms} onClick={() => setShowRooms(!showRooms)}>Rooms</button>}
+              {d.std_layer && d.std_layer.length > 0 && <button className={showLayer ? "on" : ""} aria-pressed={showLayer} onClick={() => setShowLayer(!showLayer)}>Doors, windows, fixtures</button>}
+              <button className={showWords ? "on" : ""} aria-pressed={showWords} onClick={toggleWords}>Printed text</button>
+            </div>
+            {tool !== "select" && !calib && <div className="hint">{TOOLS.find((t) => t[0] === tool)![2]}. Esc cancels.</div>}
+            {calib && (
+              <form className="calib" onSubmit={(e) => { e.preventDefault(); applyScale(); }}>
+                <label>Real length of that line
+                  <span className="num-input"><input autoFocus inputMode="decimal" value={calib.metres} onChange={(e) => setCalib({ ...calib, metres: e.target.value })} placeholder="0.90" />m</span>
+                </label>
+                <button type="submit">Set scale</button>
+                <button type="button" className="link" onClick={() => setCalib(null)}>Cancel</button>
+              </form>
+            )}
+            {takeoff && (
+              <div className={"scale" + (unsure ? " unsure" : "")}>
+                {m ? <><b>1 m = {fmt(1 / m, 0)} px</b> · {scaleNote}</> : <b>No scale yet</b>}
+                {ownScale ? <button className="link" onClick={resetScale}>Reset</button>
+                  : unsure && <button className="link" onClick={() => setTool("calibrate")}>Set it from a known length</button>}
+              </div>
+            )}
+          </Viewer>
+        )}
         <p className="credit" title={d.credit || ""}>
           {d.licence} · {d.credit}
           {d.source_url && <> · <a href={d.source_url} target="_blank" rel="noreferrer noopener">source</a></>}
@@ -115,95 +211,67 @@ export default function DrawingView() {
         <form className="ask" onSubmit={(e) => { e.preventDefault(); ask(q); }}>
           <div className="ask-row">
             <input value={q} onChange={(e) => setQ(e.target.value)} aria-label="Question"
-              placeholder={lang === "fi" ? "Kuinka monta makuuhuonetta piirustuksessa on?" : "How many bedrooms are there?"} />
+              placeholder={room ? `Ask about ${room.name || "this room"}` : "Ask anything about this drawing"} />
             <button type="submit" disabled={busy || q.trim().length < 2}>Ask</button>
           </div>
-          <div className="examples">
-            {examples.map((e, i) => <button type="button" key={i} onClick={() => ask(e.question)} title={e.question}>{e.question}</button>)}
-          </div>
-          <div className="seg small" title="Language of the example questions and the answer">
-            {LANGS.map(([k, label]) => <button type="button" key={k} className={lang === k ? "on" : ""} onClick={() => setLang(k)}>{label}</button>)}
-          </div>
         </form>
-
-        {err && <p className="error" role="alert">{err}</p>}
-        {busy && <div className="answer-card loading-card"><span className="spinner" />Finding the answer…</div>}
-        {!busy && ans && <AnswerCard a={ans} activeCand={cand?.id ?? null} onCandidate={pickCand} />}
 
         <div className="tabs" role="tablist">
           {tabs.filter((t) => t[2]).map(([k, label]) =>
             <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{label}</button>)}
         </div>
-        <div ref={tabBody}>
-          {tab === "evidence" && <EvidenceList items={evidence} ans={ans} hover={hover} sel={sel} onHover={setHover}
-            onPick={(e) => { setSel(e.id); const b = boxOf(e); if (b) viewer.current?.focus(b); }} />}
-          {tab === "data" && d.standardized && <DataPanel s={d.standardized} url={d.standardized_url} />}
-          {tab === "context" && d.context && <ContextPanel c={d.context} />}
-          {tab === "about" && <About d={d} />}
+        <div ref={tabBody} className="tab-body">
+          {tab === "summary" && (
+            takeoff ? <SummaryPanel takeoff={takeoff} m={m} x={x} room={room} concrete={concrete} onRoom={pickRoom} onAsk={ask} onMaterials={() => setTab("materials")} />
+              : <p className="pane muted">{takeoffErr ? "The plan could not be measured." : "Measuring the plan…"}</p>
+          )}
+          {tab === "materials" && takeoff && m && x && (
+            <MaterialsPanel takeoff={takeoff} m={m} x={x} room={room} a={a} setA={setA} prices={prices}
+              onRefresh={() => fetchPrices(true).then(setPrices)} onClearRoom={() => setRoomId(null)} />
+          )}
+          {tab === "answer" && (
+            <>
+              {err && <p className="error" role="alert">{err}</p>}
+              {busy && <div className="answer-card loading-card"><span className="spinner" />Finding the answer…</div>}
+              {local && takeoff && m && <TakeoffAnswer intent={local} takeoff={takeoff} m={m} a={a} prices={prices} onMaterials={() => setTab("materials")} />}
+              {!busy && ans && <AnswerCard a={ans} activeCand={cand?.id ?? null} onCandidate={pickCand} />}
+              {!busy && !ans && !local && (
+                <div className="pane">
+                  <p className="muted">Answers appear here with the evidence marked on the plan.</p>
+                  <div className="examples">{d.examples.filter((e) => e.lang === "en").slice(0, 6).map((e, i) =>
+                    <button key={i} onClick={() => ask(e.question)} title={e.question}>{e.question}</button>)}</div>
+                </div>
+              )}
+              {evidence.length > 0 && !(local && !local.rooms) && <EvidenceList items={evidence} hover={hover} sel={sel} onHover={setHover}
+                onPick={(e) => { setSel(e.id); const b = boxOf(e); if (b) viewer.current?.focus(b); }} />}
+            </>
+          )}
+          {tab === "archive" && d.context && <ContextPanel c={d.context} />}
+          {tab === "source" && <About d={d} />}
         </div>
       </aside>
     </div>
   );
 }
 
-function EvidenceList({ items, ans, hover, sel, onHover, onPick }: {
-  items: Evidence[]; ans: Answer | null; hover: string | null; sel: string | null;
-  onHover: (id: string | null) => void; onPick: (e: Evidence) => void;
+function EvidenceList({ items, hover, sel, onHover, onPick }: {
+  items: Evidence[]; hover: string | null; sel: string | null; onHover: (id: string | null) => void; onPick: (e: Evidence) => void;
 }) {
-  if (!items.length) {
-    return (
-      <p className="pane muted">
-        {!ans ? "Ask a question and the items behind the answer are listed here and marked on the drawing."
-          : ans.method === "cache" ? "This answer was cached from an evaluation run, which stored no evidence regions."
-          : "This answer has no evidence that can be drawn on the sheet."}
-      </p>
-    );
-  }
   return (
-    <ul className="ev-list">
-      {items.map((e, i) => (
-        <li key={e.id + i} data-ev={e.id} className={(hover === e.id ? "hov " : "") + (sel === e.id ? "sel" : "")}
-          onMouseEnter={() => onHover(e.id)} onMouseLeave={() => onHover(null)} onClick={() => onPick(e)}>
-          <span className="ev-label">{e.label}</span>
-          {e.off_sheet && <span className="muted">not on this sheet</span>}
-          {e.approximate && <span className="muted">approximate</span>}
-          {e.element_id && e.element_id !== e.label && <code title="Element id in the standardized file">{e.element_id}</code>}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function DataPanel({ s, url }: { s: any; url: string | null }) {
-  if (s.error) return <p className="pane muted">Converter error: {s.error}</p>;
-  const stats = Object.entries<number>(s.counts || {}).filter(([, v]) => v > 0);
-  const kinds = (o: Record<string, number> | undefined) => Object.entries(o || {}).map(([k, v]) => `${v} ${k}`).join(", ");
-  return (
-    <div className="pane">
-      <p>
-        {s.ground_truth_eligible
-          ? "Parsed exactly from the CAD or BIM source file."
-          : "Predicted by the symbol detector. These values are model output and are kept separate from ground truth."}
-      </p>
-      <div className="stats">
-        {stats.map(([k, v]) => <div key={k}><b>{v}</b>{k}</div>)}
-        {s.total_room_area_m2 > 0 && <div><b>{s.total_room_area_m2}</b>m² of rooms</div>}
-      </div>
-      {kinds(s.symbol_kinds) && <p className="muted">Symbols: {kinds(s.symbol_kinds)}</p>}
-      {kinds(s.element_kinds) && <p className="muted">Elements: {kinds(s.element_kinds)}</p>}
-      {s.levels?.length > 0 && <p className="muted">Storeys: {s.levels.join(", ")}</p>}
-      {s.rooms?.length > 0 && (
-        <table className="rooms">
-          <thead><tr><th>Room</th><th>No.</th><th className="num">Area m²</th></tr></thead>
-          <tbody>{s.rooms.slice(0, 80).map((r: any) => (
-            <tr key={r.id}><td>{r.name || <span className="muted">unnamed</span>}</td><td>{r.number}</td>
-              <td className="num" title={r.area_method}>{fmtValue(r.area_m2).value}</td></tr>
-          ))}</tbody>
-        </table>
-      )}
-      {s.warnings?.length > 0 && <p className="muted">Warnings: {s.warnings.join("; ")}</p>}
-      {url && <a href={url} target="_blank" rel="noreferrer">Open the standardized JSON file ↗</a>}
-    </div>
+    <>
+      <h3>Evidence</h3>
+      <ul className="ev-list">
+        {items.map((e, i) => (
+          <li key={e.id + i} data-ev={e.id} className={(hover === e.id ? "hov " : "") + (sel === e.id ? "sel" : "")}
+            onMouseEnter={() => onHover(e.id)} onMouseLeave={() => onHover(null)} onClick={() => onPick(e)}>
+            <span className="ev-label">{e.label}</span>
+            {e.off_sheet && <span className="muted">not on this sheet</span>}
+            {e.approximate && <span className="muted">approximate</span>}
+            {e.element_id && e.element_id !== e.label && <code title="Element id in the standardized file">{e.element_id}</code>}
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 
@@ -215,6 +283,7 @@ function About({ d }: { d: DrawingFull }) {
       <div><dt>Files</dt><dd>{Object.keys(d.files).join(", ").toUpperCase()}</dd></div>
       <div><dt>Licence</dt><dd>{d.licence}{d.licence?.includes("NC") && ", non-commercial use only"}</dd></div>
       <div><dt>Credit</dt><dd>{d.credit}</dd></div>
+      {d.standardized_url && <div><dt>Extracted data</dt><dd><a href={d.standardized_url} target="_blank" rel="noreferrer">Standardized JSON file ↗</a></dd></div>}
       {d.source_url && <div><dt>Original</dt><dd><a href={d.source_url} target="_blank" rel="noreferrer noopener">{d.source_url}</a></dd></div>}
     </dl>
   );

@@ -1,3 +1,6 @@
 node_modules
 dist
 *.tsbuildinfo
+server/.venv
+server/cache
+__pycache__
