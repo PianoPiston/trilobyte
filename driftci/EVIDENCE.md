@@ -25,4 +25,12 @@ A direct Context.dev scrape of the OpenAI deprecations page returned a successfu
 - A second immediate manual scan received HTTP 429 from the shared public scan guard.
 - API and Chromium workflow suites passed both through localhost and the public HTTPS deployment, including actual patch and Markdown incident-report downloads.
 
+## Large-repository reader validation
+
+GitHub connections no longer use Codeload/ZIP archives. Tree metadata and selected raw source files are both pinned to the resolved commit, and API tokens are not forwarded to the raw host. Nested npm/Python manifests retain distinct dependency scopes.
+
+A real read-only probe of `microsoft/vscode` on 2026-11-15 resolved commit `776b518e720e780fb590f29872473f90bda9e079`. GitHub reported **1,758,894 KB** and the tree contained 21,443 files. With an intentionally small QA budget, DriftCI read **16 selected source files / 65,042 bytes**, consumed no archive and correctly marked coverage partial (GitHub tree not truncated; the source budget was the limit). This scans file evidence without cloning or downloading the repository; it does not claim exhaustive whole-repo coverage.
+
+The browser suite includes the repository coverage view and partial-scan warning. Backend fixtures verify a mocked 90 MB repository, nested dependency manifests, absent Codeload calls, raw-host credential isolation, immutable commit requests and budget/partial accounting. Raw content is also streamed with a chunk-level per-file guard.
+
 Reachability in the example is inferred only from relevant code patterns, with comment-only keyword occurrences ignored. It is not represented as exploit proof.

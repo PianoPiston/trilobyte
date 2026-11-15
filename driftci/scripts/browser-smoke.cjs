@@ -92,6 +92,39 @@ async function capture(page, name) {
     checks.push('Resolved vulnerability history');
 
     await fetch(`${BASE}/api/demo/reset`, { method: 'POST' }).then((response) => { assert(response.ok, `Final reset failed: ${response.status}`); });
+    await page.route('**/api/bootstrap', async (route) => {
+      const response = await route.fetch();
+      const payload = await response.json();
+      payload.workspace = {
+        ...payload.workspace,
+        name: 'Large public repository',
+        repository: 'acme/large-repository',
+        source: 'github',
+        coverage: {
+          mode: 'github_tree_selective', archive_downloaded: false,
+          commit_sha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          complete: false, tree_truncated: true, repository_files: 95000,
+          candidate_files: 21, selected_files: 10, files_read: 10,
+          skipped_large_files: 1, skipped_budget_files: 9, failed_files: 1,
+          bytes_read: 82000, file_limit: 600, byte_limit: 12000000,
+          per_file_limit: 2000000, repository_size_kb: 90000,
+        },
+      };
+      await route.fulfill({ response, json: payload });
+    });
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.getByTestId('partial-scan-notice').waitFor();
+    await page.getByRole('button', { name: 'Repository and demo controls' }).click();
+    await page.getByTestId('repository-coverage').waitFor();
+    const coverageText = await page.getByTestId('repository-coverage').innerText();
+    assert(coverageText.includes('10 / 21'), 'Selective repository read counts are absent');
+    assert(coverageText.includes('No archive or clone'), 'No-archive reader explanation is absent');
+    assert(coverageText.includes('not evidence of absence'), 'Partial-coverage warning is absent');
+    assert(coverageText.includes('aaaaaaaaaaaa'), 'Pinned source commit is absent');
+    await capture(page, 'repository-coverage.png');
+    checks.push('Large-repository selective reader coverage and partial-result disclosure');
+    await page.getByRole('button', { name: 'Close drawer' }).click();
+    await page.unroute('**/api/bootstrap');
     await page.reload({ waitUntil: 'networkidle' });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole('heading', { name: 'Changes that need a decision.' }).waitFor();

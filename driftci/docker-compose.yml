@@ -10,6 +10,9 @@ services:
       DRIFTCI_EXAMPLE_DIR: /opt/driftci/examples/orders-ai
       DRIFTCI_WATCH_INTERVAL_SECONDS: 900
       DRIFTCI_SCAN_COOLDOWN_SECONDS: 30
+      DRIFTCI_GITHUB_FILE_LIMIT: 600
+      DRIFTCI_GITHUB_BYTE_LIMIT: 12000000
+      DRIFTCI_GITHUB_FILE_BYTE_LIMIT: 2000000
     volumes:
       - driftci-data:/data
     restart: unless-stopped

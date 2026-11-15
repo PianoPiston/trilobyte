@@ -88,7 +88,21 @@ OSV and CISA use their public endpoints when a live vulnerability scan runs. No 
 
 ## Connect a repository
 
-Use **Connect repository** and provide a public GitHub URL. The backend downloads a bounded source archive, rejects unsafe paths and scans allowlisted manifest/source files. It never executes repository code or package lifecycle scripts.
+Use **Connect repository** and provide a public GitHub URL. **There is no repository ZIP, clone, install or 25 MB repository-archive limit.**
+
+The selective reader:
+
+1. Resolves repository metadata, the default branch and its immutable commit SHA.
+2. Reads GitHub's recursive **tree metadata at that commit**, not the repository archive.
+3. Selects dependency manifests first, then allowlisted application source/config files. Documentation, media, `node_modules`, build output, caches and vendor directories are filtered out before content requests.
+4. Reads only selected UTF-8 files from `raw.githubusercontent.com`, pinned to that same commit. Nested `package.json`/`package-lock.json`, `pyproject.toml` and requirements files retain separate manifest scopes.
+5. Shows files read, bytes read, skipped files and complete/partial coverage. A partial scan never claims that missing findings prove absence.
+
+Default source-reading bounds are **600 selected files / 12 MB total / 2 MB per file**, independent of total repository size. Adjust them server-side with `DRIFTCI_GITHUB_FILE_LIMIT`, `DRIFTCI_GITHUB_BYTE_LIMIT` and `DRIFTCI_GITHUB_FILE_BYTE_LIMIT`. If a GitHub tree is truncated or the budget is reached, the UI shows a partial-coverage warning.
+
+The scanner never executes repository code or package lifecycle scripts. GitHub credentials, when configured, go only to `api.github.com` for repository metadata/rate limits and PR operations—never to the raw host. Source contents are not sent to Context.dev; OSV receives only inventoried package/version queries.
+
+For application-report links or exhaustive whole-repository SBOMs, add a scoped CI connector rather than making a browser client download the repository.
 
 The built-in `examples/orders-ai` fixture intentionally has an outdated Next.js version, middleware authorization logic and retired OpenAI model identifiers. **Do not deploy that fixture.**
 
@@ -151,7 +165,7 @@ See `PRODUCT.md` for data shapes and `DEMO.md` for the 90-second judging script.
 make test
 ```
 
-This builds the TypeScript frontend and runs deterministic backend tests without live network dependencies. Unit tests cover the risky logic—inventory parsing, version/fixed-range analysis, source matching, real OpenAI table structures, patch generation, archive safety and state transitions—rather than relying exclusively on screenshots.
+This builds the TypeScript frontend and runs deterministic backend tests without live network dependencies. Unit tests cover the risky logic—inventory parsing, version/fixed-range analysis, source matching, real OpenAI table structures, patch generation, selective pinned-commit GitHub reads, scan-coverage accounting, source budgets and state transitions—rather than relying exclusively on screenshots.
 
 Run the credential-free workflow against a running service:
 

@@ -3,6 +3,26 @@ export type SignalKind = 'deprecation' | 'vulnerability' | 'api' | 'pricing' | '
 export type SignalState = 'needs_action' | 'acknowledged' | 'fix_ready' | 'resolved' | 'monitoring';
 export type ActionStatus = 'done' | 'pending';
 
+export interface RepositoryCoverage {
+  mode: 'github_tree_selective';
+  archive_downloaded: false;
+  commit_sha: string;
+  complete: boolean;
+  tree_truncated: boolean;
+  repository_files: number;
+  candidate_files: number;
+  selected_files: number;
+  files_read: number;
+  skipped_large_files: number;
+  skipped_budget_files: number;
+  failed_files: number;
+  bytes_read: number;
+  file_limit: number;
+  byte_limit: number;
+  per_file_limit: number;
+  repository_size_kb: number | null;
+}
+
 export interface Workspace {
   id: string;
   name: string;
@@ -10,6 +30,7 @@ export interface Workspace {
   branch: string;
   environment: string;
   source: string;
+  coverage?: RepositoryCoverage;
 }
 
 export interface Summary {

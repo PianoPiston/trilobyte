@@ -19,6 +19,7 @@ import { cx, formatDate, plural, relativeTime, severityRank } from '../utils';
 import {
   Button,
   EmptyState,
+  InlineNotice,
   ModeBadge,
   PageHeading,
   SectionHeading,
@@ -52,6 +53,14 @@ export function MissionControl({ data, onNavigate, onSelectSignal }: {
         description="Official dependency intelligence, mapped to the code your team owns."
         actions={<Button icon={FileSearch} onClick={() => onNavigate('evidence')}>Inspect evidence</Button>}
       />
+
+      {data.workspace.coverage && !data.workspace.coverage.complete && (
+        <div className="partial-scan-notice">
+          <InlineNotice tone="warning" data-testid="partial-scan-notice">
+            <div><strong>Bounded scan: {data.workspace.coverage.files_read} of {data.workspace.coverage.candidate_files} relevant files read.</strong><p>Findings are not evidence of absence in unread files. Review Repository coverage before relying on a zero-result summary.</p></div>
+          </InlineNotice>
+        </div>
+      )}
 
       <section className="metric-grid" aria-label="Workspace risk summary">
         <article className="metric-card risk-card">

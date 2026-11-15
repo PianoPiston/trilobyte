@@ -12,7 +12,7 @@ from .db import Database
 from .github import GitHubError, GitHubPullRequests
 from .intel import VulnerabilityIntel, advisory_receipts, cve_id, kev_entries, kev_receipt, score_and_severity
 from .remediation import RemediationError, generate, patch_text
-from .repository import download_public
+from .repository import SourceLimits, read_public
 from .scanner import Dependency, dependency_evidence, inventory, middleware_evidence, model_evidence, production_models
 from .seed import actions, deprecation_receipt, deprecation_signal
 from .util import parse_iso, safe_excerpt, stable_id, utcnow
@@ -279,9 +279,11 @@ class DriftService:
         return remediation
 
     async def connect(self, url: str) -> dict:
-        workspace, files = await download_public(self.http, url, self.settings.github_token)
+        limits = SourceLimits(self.settings.github_file_limit, self.settings.github_byte_limit, self.settings.github_file_byte_limit)
+        workspace, files = await read_public(self.http, url, self.settings.github_token, limits)
         self.db.replace_workspace(workspace, files)
-        self.db.add_activity("repository", "Public repository connected", f"{workspace['repository']} · {len(files)} UTF-8 source files indexed; no repository code executed")
+        scope = "full eligible-file coverage" if workspace["coverage"]["complete"] else "bounded/partial coverage; inspect scan coverage before concluding absence"
+        self.db.add_activity("repository", "Public repository selectively indexed", f"{workspace['repository']}@{(workspace['coverage']['commit_sha'])[:12]} · {len(files)} text files, {workspace['coverage']['bytes_read']} bytes · {scope}; no archive or repository code executed")
         await self.scan()
         return self.bootstrap()
 
@@ -363,7 +365,13 @@ class DriftService:
                 cve = cve_id(advisory) or advisory["id"]
                 base_id = f"sig-{cve}"
                 existing = self.db.get_signal(base_id)
-                ident = base_id if not existing or existing.get("affected_package") == dependency.name else f"{base_id}-{_slug(dependency.ecosystem)}-{_slug(dependency.name)}"
+                same_scope = (
+                    existing.get("affected_package") == dependency.name
+                    and existing.get("ecosystem") == dependency.ecosystem
+                    and existing.get("affected_version") == dependency.version
+                    and existing.get("manifest") in {None, dependency.manifest}
+                )
+                ident = base_id if not existing or same_scope else f"{base_id}-{_slug(dependency.ecosystem)}-{_slug(dependency.name)}-{_slug(dependency.manifest)}"
                 existing = self.db.get_signal(ident) or {}
                 score, severity = score_and_severity(advisory)
                 is_kev = cve in known_exploited

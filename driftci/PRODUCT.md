@@ -152,7 +152,9 @@ Body `{"signal_id":"sig-model-gpt4-0314"}`. Generates and stores a deterministic
 `POST /api/remediations/{id}/approve` marks human approval and returns remediation. `GET /api/remediations/{id}/patch` returns `text/x-patch`. `POST /api/remediations/{id}/open-pr` uses GitHub only when configured, otherwise returns HTTP 409 with a clear patch-export message.
 
 ### `POST /api/repositories/connect`
-Body `{"url":"https://github.com/owner/repo"}`. Public repository download/scan. No arbitrary local paths or command execution. Returns bootstrap.
+Body `{"url":"https://github.com/owner/repo"}`. Public repository selective source reading. No arbitrary local paths, archive/clone or command execution. Repository size does not impose a 25 MB archive limit. The backend resolves a commit, reads its recursive Git tree, prioritizes manifests and fetches only selected source/config text from the raw host at the same commit.
+
+Returns bootstrap with `workspace.coverage`: complete/partial status, commit, candidate/read/file counts, bytes, tree-truncation and skipped/error counts. Nested manifests retain distinct dependency scopes. Default bounds are 600 selected files, 12 MB total and 2 MB per file, configurable with `DRIFTCI_GITHUB_*` settings. Partial coverage is visibly disclosed and must not be treated as evidence of absence.
 
 ### `DELETE /api/workspace`
 Restore the built-in demo.

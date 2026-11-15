@@ -106,38 +106,38 @@ def _lock_npm(content: str) -> tuple[dict[str, str], dict]:
 
 
 def _npm_inventory(files: Mapping[str, str]) -> list[Dependency]:
-    content = files.get("package.json")
-    if not content:
-        return []
-    try:
-        manifest = json.loads(content)
-    except json.JSONDecodeError:
-        return []
-    if not isinstance(manifest, dict):
-        return []
-    locked = {}
-    if "package-lock.json" in files:
-        locked, _ = _lock_npm(files["package-lock.json"])
-    declarations: dict[str, str] = {}
-    for section in ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies"):
-        values = manifest.get(section) or {}
-        if isinstance(values, dict):
-            for name, spec in values.items():
-                if isinstance(spec, str):
-                    declarations.setdefault(name, spec)
     result = []
-    for name, spec in declarations.items():
-        pinned = bool(re.fullmatch(r"\d+(?:\.\d+)*(?:-[0-9A-Za-z.-]+)?", spec.strip()))
-        version = locked.get(name, spec)
-        if version:
-            result.append(Dependency(name, "npm", version, spec, _kind(name), "package.json", name in locked or pinned))
+    for manifest_path, content in sorted(files.items()):
+        if PurePosixPath(manifest_path).name != "package.json":
+            continue
+        try:
+            manifest = json.loads(content)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(manifest, dict):
+            continue
+        parent = PurePosixPath(manifest_path).parent.as_posix()
+        lock_path = "package-lock.json" if parent == "." else f"{parent}/package-lock.json"
+        locked, _ = _lock_npm(files.get(lock_path, ""))
+        declarations: dict[str, str] = {}
+        for section in ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies"):
+            values = manifest.get(section) or {}
+            if isinstance(values, dict):
+                for name, spec in values.items():
+                    if isinstance(spec, str):
+                        declarations.setdefault(name, spec)
+        for name, spec in declarations.items():
+            pinned = bool(re.fullmatch(r"\d+(?:\.\d+)*(?:-[0-9A-Za-z.-]+)?", spec.strip()))
+            version = locked.get(name, spec)
+            if version:
+                result.append(Dependency(name, "npm", version, spec, _kind(name), manifest_path, name in locked or pinned))
     return result
 
 
 def _python_inventory(files: Mapping[str, str]) -> list[Dependency]:
-    records: dict[str, Dependency] = {}
+    records: dict[tuple[str, str], Dependency] = {}
     requirement = re.compile(r"^([A-Za-z0-9_.-]+)\s*(?:\[[^]]+\])?\s*(==|>=|<=|~=|!=|>|<)\s*([A-Za-z0-9.*+!_-]+)")
-    for path, content in files.items():
+    for path, content in sorted(files.items()):
         if PurePosixPath(path).name not in {"requirements.txt", "requirements.lock"}:
             continue
         for raw in content.splitlines():
@@ -146,13 +146,14 @@ def _python_inventory(files: Mapping[str, str]) -> list[Dependency]:
             if not match or match.group(2) != "==":
                 continue
             normalized = match.group(1).lower().replace("_", "-")
-            records[normalized] = Dependency(normalized, "PyPI", match.group(3), match.group(0), _kind(normalized), path, "*" not in match.group(3))
-    content = files.get("pyproject.toml")
-    if content:
+            records[(normalized, path)] = Dependency(normalized, "PyPI", match.group(3), match.group(0), _kind(normalized), path, "*" not in match.group(3))
+    for project_path, content in sorted(files.items()):
+        if PurePosixPath(project_path).name != "pyproject.toml":
+            continue
         try:
             project = tomllib.loads(content)
         except tomllib.TOMLDecodeError:
-            project = {}
+            continue
         dependencies = (project.get("project") or {}).get("dependencies") or []
         for value in dependencies:
             if not isinstance(value, str):
@@ -160,7 +161,7 @@ def _python_inventory(files: Mapping[str, str]) -> list[Dependency]:
             match = requirement.match(value.strip())
             if match and match.group(2) == "==":
                 normalized = match.group(1).lower().replace("_", "-")
-                records[normalized] = Dependency(normalized, "PyPI", match.group(3), value, _kind(normalized), "pyproject.toml", "*" not in match.group(3))
+                records[(normalized, project_path)] = Dependency(normalized, "PyPI", match.group(3), value, _kind(normalized), project_path, "*" not in match.group(3))
         poetry = ((project.get("tool") or {}).get("poetry") or {}).get("dependencies") or {}
         if isinstance(poetry, dict):
             for name, spec in poetry.items():
@@ -168,7 +169,7 @@ def _python_inventory(files: Mapping[str, str]) -> list[Dependency]:
                     continue
                 if re.fullmatch(r"\d+(?:\.\d+)*(?:-[0-9A-Za-z.-]+)?", spec):
                     normalized = name.lower().replace("_", "-")
-                    records[normalized] = Dependency(normalized, "PyPI", spec, spec, _kind(normalized), "pyproject.toml", True)
+                    records[(normalized, project_path)] = Dependency(normalized, "PyPI", spec, spec, _kind(normalized), project_path, True)
     return list(records.values())
 
 
@@ -189,7 +190,10 @@ def package_usage(files: Mapping[str, str], name: str, ecosystem: str) -> int:
 
 
 def middleware_evidence(files: Mapping[str, str]) -> list[dict]:
-    for path in ("middleware.ts", "middleware.js", "src/middleware.ts", "src/middleware.js"):
+    preferred = ("middleware.ts", "middleware.js", "src/middleware.ts", "src/middleware.js")
+    candidates = [path for path in preferred if path in files]
+    candidates.extend(sorted(path for path in files if path not in preferred and PurePosixPath(path).name in {"middleware.ts", "middleware.js"}))
+    for path in candidates:
         if path not in files:
             continue
         content = files[path]
@@ -208,10 +212,10 @@ def dependency_evidence(files: Mapping[str, str], dependency: Dependency) -> lis
 
 
 def inventory(files: Mapping[str, str], issues: Mapping[tuple[str, str], int] | None = None) -> list[dict]:
-    dependencies = {(item.ecosystem, item.name): item for item in _npm_inventory(files) + _python_inventory(files)}
+    dependencies = {(item.ecosystem, item.name, item.manifest): item for item in _npm_inventory(files) + _python_inventory(files)}
     issues = issues or {}
     result = []
-    for (ecosystem, name), item in sorted(dependencies.items(), key=lambda pair: (pair[0][1], pair[0][0])):
+    for (ecosystem, name, _manifest), item in sorted(dependencies.items(), key=lambda pair: (pair[0][1], pair[0][0], pair[0][2])):
         count = issues.get((ecosystem, name), 0)
         data = asdict(item)
         data.update({
