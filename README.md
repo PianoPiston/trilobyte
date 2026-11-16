@@ -1,9 +1,4 @@
-# Junction 2026: Trilobyte + DriftCI
-
-Two independent challenge projects live in this repository:
-
-- **Trilobyte** (below): Stoa, “Make Blueprints Talk”, plus Verda Compute.
-- **DriftCI** (`driftci/`): Context.dev, live dependency intelligence and CVE incident response. See [`driftci/README.md`](driftci/README.md).
+# Trilobyte: make blueprints talk
 
 Junction 2026, Stoa challenge "Make Blueprints Talk" (+ Verda Compute). Ask natural-language questions (EN/FI) about
 construction drawings and get an answer **with its evidence**: the room polygons, IFC element IDs or detected symbols
