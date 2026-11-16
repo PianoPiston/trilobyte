@@ -117,6 +117,9 @@ def main():
     ap.add_argument("--no-thinking", action="store_true", help="render with enable_thinking=False (Qwen3.5)")
     ap.add_argument("--sources", nargs="*"); ap.add_argument("--max-steps", type=int, default=0)
     ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--init-adapter", help="merge this LoRA adapter into the base weights first (warm start, e.g. run1-step1050)")
+    ap.add_argument("--train-vision", action="store_true",
+                    help="also put LoRA on the vision tower blocks + merger (not vLLM-LoRA-servable: merge with scripts/merge_vlm.py)")
     a = ap.parse_args()
     from transformers import AutoProcessor, AutoModelForImageTextToText, get_cosine_schedule_with_warmup
     from peft import LoraConfig, get_peft_model
@@ -127,6 +130,10 @@ def main():
     proc = AutoProcessor.from_pretrained(a.model)
     tk = {"enable_thinking": False} if a.no_thinking else {}
     model = AutoModelForImageTextToText.from_pretrained(a.model, dtype=torch.bfloat16, attn_implementation="sdpa").cuda()
+    if a.init_adapter:
+        from peft import PeftModel
+        model = PeftModel.from_pretrained(model, a.init_adapter).merge_and_unload()
+        print("merged init adapter", a.init_adapter, flush=True)
     model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     model.enable_input_require_grads()
     # language-model linear layers only (vLLM-servable LoRA); vision tower frozen
@@ -135,7 +142,9 @@ def main():
     target = [n for n in names if n in {"q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj",
                                         "in_proj_qkvz", "in_proj_ba", "in_proj_qkv", "in_proj_z", "in_proj_b", "in_proj_a", "out_proj"}]
     regex = r"^(?!.*(visual|vision)).*\.(" + "|".join(target) + r")$"
-    print("lora targets:", target, flush=True)
+    if a.train_vision:
+        regex = "(" + regex[:-1] + r")|(^.*visual\.(blocks\.\d+\..*|merger\.)(qkv|proj|linear_fc1|linear_fc2))$"
+    print("lora targets:", target, "vision:", a.train_vision, flush=True)
     model = get_peft_model(model, LoraConfig(r=a.rank, lora_alpha=a.alpha, lora_dropout=0.05,
                                              target_modules=regex, task_type="CAUSAL_LM"))
     model.print_trainable_parameters()

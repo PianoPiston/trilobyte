@@ -60,6 +60,7 @@ def main():
     ap.add_argument("--coco"); ap.add_argument("--epochs", type=int, default=12); ap.add_argument("--bs", type=int, default=4)
     ap.add_argument("--lr", type=float, default=0.02); ap.add_argument("--workers", type=int, default=10)
     ap.add_argument("--limit", type=int); ap.add_argument("--max-hours", type=float, default=3.5)
+    ap.add_argument("--init", help="warm start from a full detector checkpoint (e.g. det2 last.pt)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     rows = [json.loads(l) for l in open(a.labels)]
@@ -73,7 +74,10 @@ def main():
     dl = torch.utils.data.DataLoader(DS(tr, a.data, True), batch_size=a.bs, shuffle=True, num_workers=a.workers,
                                      collate_fn=collate, drop_last=True, persistent_workers=True)
     dev = "cuda"
-    model = build_model(a.coco).to(dev)
+    model = build_model(a.coco)
+    if a.init:
+        model.load_state_dict(torch.load(a.init, map_location="cpu"))
+    model = model.to(dev)
     params = [p for p in model.parameters() if p.requires_grad]
     opt = torch.optim.SGD(params, lr=a.lr, momentum=0.9, weight_decay=1e-4)
     total = a.epochs * len(dl); warm = 300
