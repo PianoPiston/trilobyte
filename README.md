@@ -18,6 +18,13 @@ drawing + question
 ```
 The standardized drawing format is `schema/drawing.schema.json`. Model-derived files are marked `ground_truth_eligible=false`.
 
+## Floor-plan editor (`editor/`)
+The demo UI at https://stoa.ajc.contexio.fi. Drop in a floor plan and the editor measures its rooms (exact from CAD/BIM,
+segmented from the walls of a scan, with a calibratable scale), lists material quantities for the floor or a single room
+(concrete slab, reinforcement mesh, insulation, vapour barrier, levelling compound, laminate, wet-room tiles,
+plasterboard, primer, paint, mouldings, doors) priced live from Finnish suppliers through context.dev web search,
+answers questions with the evidence marked on the sheet, and builds a 3D model you can orbit. Details: `editor/README.md`.
+
 ## Results (held-out TEST split, split by drawing, official tolerance: counts exact, areas ±2%)
 | system | accuracy | €/1k questions |
 |---|---|---|
