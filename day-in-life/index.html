@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#11130f">
+  <title>Day in the Life — Site Manager Edition</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main id="game" class="game stage-title">
+    <div class="office" aria-label="First-person view of a construction site office">
+      <div class="wall"></div>
+      <div class="site-poster"><strong>SITE 24</strong><span>Safety starts with you.</span><small>Wear protective gear · Take breaks</small></div>
+      <div class="door"><span>SITE OFFICE</span><i></i></div>
+      <div class="lamp"><i></i><b></b><span></span></div>
+      <div id="worker"></div>
+      <div class="desk"><div class="desk-edge"></div><div class="paper"></div><div class="coffee"><i></i>MANAGER</div><div class="keyboard"></div><div class="mouse"></div></div>
+      <div id="monitor" class="monitor" role="button" tabindex="0" aria-label="Use the computer">
+        <div class="monitor-frame">
+          <div id="desktop" class="desktop"><strong>▦</strong><b>Trilobyte</b><span>Click to use computer</span></div>
+          <section id="computer" class="computer" hidden>
+            <header><strong>▦</strong><b>Trilobyte</b><span>Make Blueprints Talk</span><i>● EXACT CAD CONNECTED</i></header>
+            <div class="workspace">
+              <div class="drawing"><h3>Site 3634 · Building 5596 · Floor 24203 <span>DXF + PNG</span></h3><img src="/api/drawings/swiss_dwellings~site3634_bldg5596_floor24203/image" alt="The apartment floor plan being queried"></div>
+              <div class="ask-panel"><span class="eyebrow">ASK THE DRAWING</span><h2 id="computer-heading"></h2><label>Question</label><div id="query" class="query"></div><button id="ask" class="primary">Ask Trilobyte ↗</button><div id="loading" class="loading" hidden><i></i>Reading the CAD model…</div><p id="error" class="error"></p><div id="answer" class="answer" hidden></div><div id="trust" class="trust"><b>No guessing.</b><span>A deterministic answer from the original DXF, with evidence you can verify.</span></div></div>
+            </div>
+          </section>
+        </div><div class="monitor-neck"></div><div class="monitor-foot"></div>
+      </div>
+    </div>
+
+    <section id="hud" class="hud" hidden><span>DAY IN THE LIFE</span><b id="objective"></b><small id="visit-count"></small></section>
+    <div id="clock" class="clock" hidden><b></b><span>SITE 24</span></div>
+    <button id="sound" class="sound" hidden>🔊 Worker voice</button>
+    <div id="minimap" class="minimap" hidden><div></div><i>N</i><b></b></div>
+    <section id="worker-line" class="dialogue" hidden><b id="speaker"></b><p id="worker-question"></p></section>
+    <section id="manager-line" class="dialogue manager-line" hidden><b>YOU · SITE MANAGER</b><p id="manager-answer"></p><button id="next" class="next"></button></section>
+    <button id="use" class="use" hidden><kbd>E</kbd> Use computer</button>
+    <div id="monitor-help" class="monitor-help" hidden><kbd>ESC</kbd> Back to office<span>TRILOBYTE · LIVE DRAWING API</span></div>
+
+    <section id="intro" class="intro">
+      <div class="grain"></div><div class="intro-content"><span class="edition">A TRILOBYTE STORY</span><h1>DAY IN<br>THE LIFE</h1><h2>SITE MANAGER EDITION</h2><p>One desk. One drawing. Three impatient builders.<br>Every answer backed by evidence.</p><button id="start" class="start">Start shift <span>→</span></button><small>First-person office simulator · Headphones recommended</small></div><div class="age">18+<span>Strong site language</span></div>
+    </section>
+    <section id="complete" class="complete" hidden><div class="grain"></div><div class="complete-content"><span class="eyebrow">SHIFT COMPLETE</span><h1>Back to work.</h1><div class="stats"><div><b>3</b><span>questions answered</span></div><div><b>100%</b><span>evidence-backed</span></div><div><b>0</b><span>answers guessed</span></div></div><p>Trilobyte makes blueprints talk.<br>You make the final point.</p><button id="restart" class="start">Another shift</button></div></section>
+  </main>
+  <script src="/game.js"></script>
+</body>
+</html>
